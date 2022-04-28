@@ -21,19 +21,20 @@
                 </a>
             </div>
             <div id="file-picker">
-                <div id="local-file-container">
-                    <span>Local SWF:</span>
-                    <input type="file" accept=".swf,.spl" id="local-file" />
-                </div>
-                <div id="sample-swfs-container" class="hidden">
-                    <span id="sample-swfs-label">Sample SWF:</span>
-                    <select id="sample-swfs">
+                <input style="display: none;" type="file" accept=".swf,.spl" id="local-file" />
+                <div id="swfs-container" class="hidden">
+                    <span id="swfs-label">Choose SWF:</span>
+                    <select id="swfs">
                         <option value="none">None</option>
+                        <option value="local">Local File</option>
                         <optgroup id="anim-optgroup" label="Animations"></optgroup>
                         <optgroup id="games-optgroup" label="Games"></optgroup>
                     </select>
                     <div id="author-container" class="hidden">
                         <span>Author: </span><a href="#" target="_blank" id="author"></a>
+                    </div>
+                    <div id="filename-container" class="hidden">
+                        <span>File: </span><span id="filename"></a>
                     </div>
                 </div>
             </div>

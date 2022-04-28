@@ -15,12 +15,14 @@ const main = document.getElementById("main");
 const overlay = document.getElementById("overlay");
 const prompt = document.getElementById("prompt");
 const authorContainer = document.getElementById("author-container");
+const filenameContainer = document.getElementById("filename-container");
 const author = document.getElementById("author");
-const sampleFileInputContainer = document.getElementById(
-    "sample-swfs-container"
+const filename = document.getElementById("filename");
+const fileInputContainer = document.getElementById(
+    "swfs-container"
 );
 const localFileInput = document.getElementById("local-file");
-const sampleFileInput = document.getElementById("sample-swfs");
+const fileInput = document.getElementById("swfs");
 // prettier-ignore
 const optionGroups = {
     "Animation": document.getElementById("anim-optgroup"),
@@ -57,8 +59,8 @@ function showSample(swfData) {
     localFileInput.value = null;
 }
 
-function hideSample() {
-    sampleFileInput.selectedIndex = 0;
+function hideSample(newIndex) {
+    fileInput.selectedIndex = newIndex ? newIndex : 0;
     authorContainer.classList.add("hidden");
     author.textContent = "";
     author.href = "";
@@ -68,13 +70,17 @@ async function loadFile(file) {
     if (!file) {
         return;
     }
-    hideSample();
+    hideSample(1);
+    filename.textContent = file.name;
+    filenameContainer.classList.remove("hidden");
     const data = await new Response(file).arrayBuffer();
     load({ data, ...config });
 }
 
 function loadSample() {
-    const swfData = sampleFileInput[sampleFileInput.selectedIndex].swfData;
+    const swfData = fileInput[fileInput.selectedIndex].swfData;
+    filename.textContent = "";
+    filenameContainer.classList.add("hidden");
     if (swfData) {
         showSample(swfData);
         load({ url: swfData.location, ...config });
@@ -87,8 +93,6 @@ function loadSample() {
 localFileInput.addEventListener("change", (event) => {
     loadFile(event.target.files[0]);
 });
-
-sampleFileInput.addEventListener("change", () => loadSample());
 
 main.addEventListener("dragenter", (event) => {
     event.stopPropagation();
@@ -151,13 +155,22 @@ window.addEventListener("load", () => {
             option.swfData = swfData;
             optionGroups[swfData.type].append(option);
         }
-        sampleFileInputContainer.classList.remove("hidden");
+        fileInputContainer.classList.remove("hidden");
+        fileInput.querySelectorAll("option").forEach((el) => {
+            el.addEventListener("click", () => {
+                if (el.value === "local") {
+                    localFileInput.click();
+                } else {
+                    loadSample();
+                }
+            });
+        });
     }
 
     const initialFile = new URL(window.location).searchParams.get("file");
     if (initialFile) {
-        const options = Array.from(sampleFileInput.options);
-        sampleFileInput.selectedIndex = Math.max(
+        const options = Array.from(fileInput.options);
+        fileInput.selectedIndex = Math.max(
             options.findIndex((swfData) => swfData.value.endsWith(initialFile)),
             0
         );

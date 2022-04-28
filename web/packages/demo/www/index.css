@@ -92,21 +92,22 @@ body {
 
 #file-picker select,
 #file-picker input,
-#author {
+#author,
+#filename {
     margin-left: 5px;
 }
 
-#local-file-container,
-#sample-swfs-container {
+#swfs-container {
     display: inline-block;
     vertical-align: middle;
 }
 
-#author-container {
+#author-container,
+#filename-container {
     font-size: small;
 }
 
-#author {
+#author, #filename {
     color: var(--ruffle-orange);
 }
 
@@ -115,18 +116,14 @@ body {
 }
 
 @media only screen and (max-width: 800px) {
-    #local-file-container,
-    #sample-swfs-container {
+    #swfs-container {
         display: block;
     }
 }
 
 @media only screen and (max-width: 600px) {
-    #local-file-container span {
-        display: block;
-    }
 
-    #sample-swfs-label {
+    #swfs-label {
         display: block;
     }
 
