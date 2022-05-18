@@ -30,6 +30,8 @@ use crate::display_object::{
 use crate::drawing::Drawing;
 use crate::events::{ButtonKeyCode, ClipEvent, ClipEventResult};
 use crate::font::Font;
+use crate::frame_lifecycle::catchup_display_object_to_frame;
+use crate::frame_lifecycle::FramePhase;
 use crate::prelude::*;
 use crate::string::{AvmString, WStr, WString};
 use crate::tag_utils::{self, DecodeResult, SwfMovie, SwfSlice, SwfStream};
@@ -45,7 +47,8 @@ use swf::{ClipEventFlag, FrameLabelData};
 type FrameNumber = u16;
 
 /// Indication of what frame `run_frame` should jump to next.
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Collect)]
+#[collect(require_static)]
 enum NextFrame {
     /// Construct and run the next frame in the clip.
     Next,
@@ -72,7 +75,12 @@ pub struct MovieClipData<'gc> {
     base: InteractiveObjectBase<'gc>,
     static_data: Gc<'gc, MovieClipStatic<'gc>>,
     tag_stream_pos: u64,
+
+    // The number of the frame that is currently executing.
     current_frame: FrameNumber,
+
+    // The playback action that the movie clip is taking this frame.
+    natural_playhead_action: NextFrame,
     #[collect(require_static)]
     audio_stream: Option<SoundInstanceHandle>,
     container: ChildContainer<'gc>,
@@ -109,6 +117,7 @@ impl<'gc> MovieClip<'gc> {
                 static_data: Gc::allocate(gc_context, MovieClipStatic::empty(movie, gc_context)),
                 tag_stream_pos: 0,
                 current_frame: 0,
+                natural_playhead_action: NextFrame::Next,
                 audio_stream: None,
                 container: ChildContainer::new(),
                 object: None,
@@ -144,6 +153,7 @@ impl<'gc> MovieClip<'gc> {
                 static_data: Gc::allocate(gc_context, MovieClipStatic::empty(movie, gc_context)),
                 tag_stream_pos: 0,
                 current_frame: 0,
+                natural_playhead_action: NextFrame::Next,
                 audio_stream: None,
                 container: ChildContainer::new(),
                 object: Some(this.into()),
@@ -182,6 +192,7 @@ impl<'gc> MovieClip<'gc> {
                 ),
                 tag_stream_pos: 0,
                 current_frame: 0,
+                natural_playhead_action: NextFrame::Next,
                 audio_stream: None,
                 container: ChildContainer::new(),
                 object: None,
@@ -217,6 +228,7 @@ impl<'gc> MovieClip<'gc> {
                 ),
                 tag_stream_pos: 0,
                 current_frame: 0,
+                natural_playhead_action: NextFrame::Next,
                 audio_stream: None,
                 container: ChildContainer::new(),
                 object: None,
@@ -671,6 +683,14 @@ impl<'gc> MovieClip<'gc> {
         self.0.read().programmatically_played()
     }
 
+    pub fn playing_at_frame_advance(self) -> bool {
+        self.0.read().playing_at_frame_advance()
+    }
+
+    pub fn frame_construction_pending(self) -> bool {
+        self.0.read().frame_construction_pending()
+    }
+
     pub fn drop_target(self) -> Option<DisplayObject<'gc>> {
         self.0.read().drop_target
     }
@@ -728,7 +748,7 @@ impl<'gc> MovieClip<'gc> {
         // Clamp frame number in bounds.
         let frame = frame.max(1);
 
-        if frame != self.current_frame() {
+        if frame != self.current_frame() || context.avm_type() == AvmType::Avm2 {
             if self
                 .0
                 .read()
@@ -1032,15 +1052,48 @@ impl<'gc> MovieClip<'gc> {
         actions.into_iter()
     }
 
-    /// Determine what the clip's next frame should be.
-    fn determine_next_frame(self) -> NextFrame {
-        if self.current_frame() < self.total_frames() {
+    /// Advance playhead to the next frame in the clip.
+    ///
+    /// This supports three different actions as stated in `NextFrame`. The
+    /// selected playhead action will be returned and should be used if the
+    /// caller needs to know what action was taken (e.g. to return early if a
+    /// loop goto was run).
+    ///
+    /// This function also updates `natural_playhead_action`. That value should
+    /// only be referenced if you have *not* already called `advance_playhead`
+    /// as it can be overwritten by the looping goto we may trigger.
+    fn advance_playhead(self, context: &mut UpdateContext<'_, 'gc, '_>) -> NextFrame {
+        let playhead_action = if self.current_frame() < self.total_frames() {
             NextFrame::Next
         } else if self.total_frames() > 1 {
             NextFrame::First
         } else {
             NextFrame::Same
-        }
+        };
+
+        self.0.write(context.gc_context).natural_playhead_action = playhead_action;
+
+        match playhead_action {
+            NextFrame::Next => {
+                let mut write = self.0.write(context.gc_context);
+                write.queued_script_frame = Some(write.current_frame + 1);
+                write.current_frame += 1;
+            }
+            // Looping gotos in AVM2 happen during frame construction.
+            // Despite this, AS3 code still expects to see frame 1 in here.
+            NextFrame::First if context.avm_type() == AvmType::Avm2 => {
+                self.0.write(context.gc_context).current_frame = 1;
+
+                //When looping, AVM2 removes children during frame destruction,
+                //as if the movie had implicit `RemoveObject` tags for all
+                //children not present in frame 1. We run this part of the goto
+                //early.
+                self.rewind_children(context, 1);
+            }
+            NextFrame::First => self.run_goto(context, 1, true),
+            NextFrame::Same => self.stop(context),
+        };
+        playhead_action
     }
 
     fn run_frame_internal(
@@ -1048,10 +1101,19 @@ impl<'gc> MovieClip<'gc> {
         context: &mut UpdateContext<'_, 'gc, '_>,
         run_display_actions: bool,
     ) {
-        match self.determine_next_frame() {
-            NextFrame::Next => self.0.write(context.gc_context).current_frame += 1,
-            NextFrame::First => return self.run_goto(context, 1, true),
-            NextFrame::Same => self.stop(context),
+        let vm_type = context.avm_type();
+        let action = if vm_type == AvmType::Avm1 {
+            //NOTE: This can trigger recursive frames via implicit/loop gotos,
+            //which overwrites `natural_playhead_action`. If we don't use the
+            //'old' `NextFrame` value here, we will run an extra frame on this
+            //clip when we loop.
+            self.advance_playhead(context)
+        } else {
+            self.0.read().natural_playhead_action
+        };
+
+        if action == NextFrame::First {
+            return;
         }
 
         let mc = self.0.read();
@@ -1059,8 +1121,6 @@ impl<'gc> MovieClip<'gc> {
         let data = mc.static_data.swf.clone();
         let mut reader = data.read_from(mc.tag_stream_pos);
         drop(mc);
-
-        let vm_type = context.avm_type();
 
         use swf::TagCode;
         let tag_callback = |reader: &mut SwfStream<'_>, tag_code, tag_len| match tag_code {
@@ -1077,8 +1137,12 @@ impl<'gc> MovieClip<'gc> {
             TagCode::PlaceObject4 if run_display_actions && vm_type == AvmType::Avm1 => {
                 self.place_object(context, reader, tag_len, 4)
             }
-            TagCode::RemoveObject if run_display_actions => self.remove_object(context, reader, 1),
-            TagCode::RemoveObject2 if run_display_actions => self.remove_object(context, reader, 2),
+            TagCode::RemoveObject if run_display_actions && vm_type == AvmType::Avm1 => {
+                self.remove_object(context, reader, 1)
+            }
+            TagCode::RemoveObject2 if run_display_actions && vm_type == AvmType::Avm1 => {
+                self.remove_object(context, reader, 2)
+            }
             TagCode::SetBackgroundColor => self.set_background_color(context, reader),
             TagCode::StartSound => self.start_sound_1(context, reader),
             TagCode::SoundStreamBlock => self.sound_stream_block(context, reader),
@@ -1095,9 +1159,6 @@ impl<'gc> MovieClip<'gc> {
                 write.audio_stream = None;
             }
         }
-
-        let frame_id = write.current_frame;
-        write.queued_script_frame = Some(frame_id);
     }
 
     /// Instantiate a given child object on the timeline at a given depth.
@@ -1120,13 +1181,7 @@ impl<'gc> MovieClip<'gc> {
                     child.set_instantiated_by_timeline(context.gc_context, true);
                     child.set_depth(context.gc_context, depth);
                     child.set_parent(context.gc_context, Some(self.into()));
-                    if avm_type == AvmType::Avm2 {
-                        // In AVM2 instantiation happens before frame advance so we
-                        // have to special-case that
-                        child.set_place_frame(context.gc_context, self.current_frame() + 1);
-                    } else {
-                        child.set_place_frame(context.gc_context, self.current_frame());
-                    }
+                    child.set_place_frame(context.gc_context, self.current_frame());
 
                     // Apply PlaceObject parameters.
                     child.apply_place_object(context, place_object);
@@ -1168,7 +1223,7 @@ impl<'gc> MovieClip<'gc> {
                     // TODO: Missing PlaceObject properties: amf_data, filters
 
                     // Run first frame.
-                    child.construct_frame(context);
+                    catchup_display_object_to_frame(context, child);
                     child.post_instantiation(context, None, Instantiator::Movie, false);
                     // In AVM1, children are added in `run_frame` so this is necessary.
                     // In AVM2 we add them in `construct_frame` so calling this causes
@@ -1211,8 +1266,44 @@ impl<'gc> MovieClip<'gc> {
         }
     }
 
+    /// Remove children that were created after the destination frame.
+    ///
+    /// This function should be called during gotos that rewind to a prior
+    /// frame. It should also be performed after the clip timeline has been
+    /// totally read to prevent script code from observing or interfering with
+    /// the rewind process, especially in AS3.
+    ///
+    /// TODO: We want to do something like self.children.retain here, but
+    /// BTreeMap::retain does not exist.
+    ///
+    /// TODO: AS3 children don't live on the depth list. Do they respect or
+    /// ignore GOTOs?
+    fn rewind_children(mut self, context: &mut UpdateContext<'_, 'gc, '_>, frame: FrameNumber) {
+        let children: SmallVec<[_; 16]> = self
+            .0
+            .read()
+            .container
+            .iter_children_by_depth()
+            .filter_map(|(depth, clip)| {
+                if clip.place_frame() > frame {
+                    Some((depth, clip))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (_depth, child) in children {
+            if !child.placed_by_script() {
+                self.remove_child(context, child, Lists::all());
+            } else {
+                self.remove_child(context, child, Lists::DEPTH);
+            }
+        }
+    }
+
     pub fn run_goto(
-        mut self,
+        self,
         context: &mut UpdateContext<'_, 'gc, '_>,
         frame: FrameNumber,
         is_implicit: bool,
@@ -1236,41 +1327,64 @@ impl<'gc> MovieClip<'gc> {
 
         self.0.write(context.gc_context).stop_audio_stream(context);
 
+        // Oh, and as of AVM2 we have to support no-op gotos.
+        // Certain bits of AVM2 state actually do change if you no-op.
+        let is_noop = self.current_frame() == frame;
+
+        //Implicit AVM2 gotos require us to lie about our current frame number.
+        //If we did so, we have to commit to the lie by pretending that the
+        //prior implicit goto already completed.
+        if context.avm_type() == AvmType::Avm2
+            && (*context.frame_phase == FramePhase::Enter
+                || *context.frame_phase == FramePhase::Construct)
+            && self.0.read().natural_playhead_action == NextFrame::First
+            && !is_implicit
+        {
+            self.0.write(context.gc_context).natural_playhead_action = NextFrame::Next;
+            self.0.write(context.gc_context).tag_stream_pos = 0;
+        }
+
         let is_rewind = if frame < self.current_frame() {
             // Because we can only step forward, we have to start at frame 1
-            // when rewinding.
+            // when rewinding. We don't actually remove children yet because
+            // otherwise AS3 can observe byproducts of the rewinding process.
             self.0.write(context.gc_context).tag_stream_pos = 0;
             self.0.write(context.gc_context).current_frame = 0;
 
-            // Remove all display objects that were created after the destination frame.
-            // TODO: We want to do something like self.children.retain here,
-            // but BTreeMap::retain does not exist.
-            // TODO: AS3 children don't live on the depth list. Do they respect
-            // or ignore GOTOs?
-            let children: SmallVec<[_; 16]> = self
-                .0
-                .read()
-                .container
-                .iter_children_by_depth()
-                .filter_map(|(depth, clip)| {
-                    if clip.place_frame() > frame {
-                        Some((depth, clip))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            for (_depth, child) in children {
-                if !child.placed_by_script() {
-                    self.remove_child(context, child, Lists::all());
-                } else {
-                    self.remove_child(context, child, Lists::DEPTH);
-                }
-            }
             true
         } else {
+            // During the Construct frame phase, we have advanced to the next
+            // frame, but the tag stream pos currently points to the current
+            // frame's tags. This is invalid state which we have to correct
+            // before running the goto.
+            //
+            // `PlaceObject` tags have already run, so we cannot roll back the
+            // frame number (otherwise, we will duplicate objects). Instead we
+            // move up the tag stream position, as if we ran those tags after
+            // the Update frame phase.
+            //
+            // This code does NOT run in AVM1, as we never enter this invalid
+            // state in AVM1.
+            if !is_noop
+                && context.avm_type() == AvmType::Avm2
+                && *context.frame_phase == FramePhase::Construct
+            {
+                let mut mc = self.0.write(context.gc_context);
+                let tag_stream_start = mc.static_data.swf.as_ref().as_ptr() as u64;
+                let frame_pos = mc.tag_stream_pos;
+                let data = mc.static_data.swf.clone();
+                let mut reader = data.read_from(frame_pos);
+
+                use swf::TagCode;
+                let _ = tag_utils::decode_tags(&mut reader, |_, _, _| Ok(()), TagCode::ShowFrame);
+
+                mc.tag_stream_pos = reader.get_ref().as_ptr() as u64 - tag_stream_start;
+            }
+
             false
         };
+
+        let from_frame = self.current_frame();
 
         // Step through the intermediate frames, and aggregate the deltas of each frame.
         let mc = self.0.read();
@@ -1284,8 +1398,10 @@ impl<'gc> MovieClip<'gc> {
         let clamped_frame = frame.min(mc.total_frames());
         drop(mc);
 
+        let mut removed_frame_scripts: Vec<DisplayObject<'gc>> = vec![];
+
         let mut reader = data.read_from(frame_pos);
-        while self.current_frame() < clamped_frame && !reader.get_ref().is_empty() {
+        while !is_noop && self.current_frame() < clamped_frame && !reader.get_ref().is_empty() {
             self.0.write(context.gc_context).current_frame += 1;
             frame_pos = reader.get_ref().as_ptr() as u64 - tag_stream_start;
 
@@ -1315,12 +1431,24 @@ impl<'gc> MovieClip<'gc> {
 
                     mc.goto_place_object(reader, tag_len, 4, &mut goto_commands, is_rewind, index)
                 }
-                TagCode::RemoveObject => {
-                    self.goto_remove_object(reader, 1, context, &mut goto_commands, is_rewind)
-                }
-                TagCode::RemoveObject2 => {
-                    self.goto_remove_object(reader, 2, context, &mut goto_commands, is_rewind)
-                }
+                TagCode::RemoveObject => self.goto_remove_object(
+                    reader,
+                    1,
+                    context,
+                    &mut goto_commands,
+                    is_rewind,
+                    from_frame,
+                    &mut removed_frame_scripts,
+                ),
+                TagCode::RemoveObject2 => self.goto_remove_object(
+                    reader,
+                    2,
+                    context,
+                    &mut goto_commands,
+                    is_rewind,
+                    from_frame,
+                    &mut removed_frame_scripts,
+                ),
                 _ => Ok(()),
             };
             let _ = tag_utils::decode_tags(&mut reader, tag_callback, TagCode::ShowFrame);
@@ -1367,6 +1495,10 @@ impl<'gc> MovieClip<'gc> {
             }
         };
 
+        if is_rewind {
+            self.rewind_children(context, frame);
+        }
+
         // We have to be sure that queued actions are generated in the same order
         // as if the playhead had reached this frame normally.
 
@@ -1381,20 +1513,56 @@ impl<'gc> MovieClip<'gc> {
             .filter(|params| params.frame < frame)
             .for_each(|goto| run_goto_command(self, context, goto));
 
-        if !is_implicit {
-            self.frame_constructed(context);
-        }
-
         // Next, run the final frame for the parent clip.
         // Re-run the final frame without display tags (DoAction, StartSound, etc.)
         // Note that this only happens if the frame exists and is loaded;
         // e.g. gotoAndStop(9999) displays the final frame, but actions don't run!
         if hit_target_frame {
-            self.0.write(context.gc_context).current_frame -= 1;
-            self.0.write(context.gc_context).tag_stream_pos = frame_pos;
-            self.run_frame_internal(context, false);
+            if matches!(context.avm_type(), AvmType::Avm2) {
+                // AVM2 gets the final frame because run_frame_internal does
+                // NOT advance to the next frame.
+
+                {
+                    let mut write = self.0.write(context.gc_context);
+                    if !is_noop {
+                        write.tag_stream_pos = frame_pos;
+                    }
+
+                    write.queued_script_frame = Some(clamped_frame);
+
+                    if write.current_frame != from_frame {
+                        write.last_queued_script_frame = None;
+                    }
+                }
+
+                // `run_frame_internal` is a no-op when looping. On AVM1, this
+                // didn't matter, because we'd conveniently set the frame back
+                // by one and everything worked out. We can't do this on AVM2,
+                // because it won't move it forward, so instead we have to lie
+                // and say we're moving to the next frame.
+                //
+                // Also, if we're outside of the frame loop and
+                // fast-forwarding, we need to skip `run_frame_internal` to
+                // avoid a tag stream desync.
+                if !is_noop && (*context.frame_phase != FramePhase::Idle || is_rewind) {
+                    let old_npa = self.0.read().natural_playhead_action;
+                    self.0.write(context.gc_context).natural_playhead_action = NextFrame::Next;
+                    self.run_frame_internal(context, false);
+                    self.0.write(context.gc_context).natural_playhead_action = old_npa;
+                }
+            } else {
+                // AVM1 gets current_frame - 1 because we expect it to be
+                // incremented again in run_frame_internal.
+                self.0.write(context.gc_context).current_frame -= 1;
+                self.0.write(context.gc_context).tag_stream_pos = frame_pos;
+                self.run_frame_internal(context, false);
+            }
         } else {
-            self.0.write(context.gc_context).current_frame = clamped_frame;
+            let mut write = self.0.write(context.gc_context);
+
+            write.queued_script_frame = Some(clamped_frame);
+            write.last_queued_script_frame = None;
+            write.current_frame = clamped_frame;
         }
 
         // Finally, run frames for children that are placed on this frame.
@@ -1404,9 +1572,15 @@ impl<'gc> MovieClip<'gc> {
             .for_each(|goto| run_goto_command(self, context, goto));
 
         if !is_implicit {
+            self.frame_constructed(context);
             self.avm2_root(context)
                 .unwrap_or_else(|| self.into())
                 .run_frame_scripts(context);
+
+            for child in removed_frame_scripts {
+                child.run_frame_scripts(context);
+            }
+
             self.exit_frame(context);
         }
     }
@@ -1608,6 +1782,7 @@ impl<'gc> MovieClip<'gc> {
 
     /// Handle a RemoveObject tag when running a goto action.
     #[inline]
+    #[allow(clippy::too_many_arguments)]
     fn goto_remove_object<'a>(
         mut self,
         reader: &mut SwfStream<'a>,
@@ -1615,6 +1790,8 @@ impl<'gc> MovieClip<'gc> {
         context: &mut UpdateContext<'_, 'gc, '_>,
         goto_commands: &mut Vec<GotoPlaceObject<'a>>,
         is_rewind: bool,
+        from_frame: FrameNumber,
+        removed_frame_scripts: &mut Vec<DisplayObject<'gc>>,
     ) -> DecodeResult {
         let remove_object = if version == 1 {
             reader.read_remove_object_1()
@@ -1631,15 +1808,21 @@ impl<'gc> MovieClip<'gc> {
             // Don't do this for rewinds, because they conceptually
             // start from an empty display list, and we also want to examine
             // the old children to decide if they persist (place_frame <= goto_frame).
-            let read = self.0.read();
-            if let Some(child) = read.container.get_depth(depth) {
-                drop(read);
+            let to_frame = self.current_frame();
+            self.0.write(context.gc_context).current_frame = from_frame;
+
+            let child = self.0.read().container.get_depth(depth);
+            if let Some(child) = child {
                 if !child.placed_by_script() {
                     self.remove_child(context, child, Lists::all());
                 } else {
                     self.remove_child(context, child, Lists::DEPTH);
                 }
+
+                removed_frame_scripts.push(child);
             }
+
+            self.0.write(context.gc_context).current_frame = to_frame;
         }
         Ok(())
     }
@@ -1733,6 +1916,45 @@ impl<'gc> TDisplayObject<'gc> for MovieClip<'gc> {
         self.0.read().movie().version()
     }
 
+    fn enter_frame(&self, context: &mut UpdateContext<'_, 'gc, '_>) {
+        //Child removals from looping gotos appear to resolve in reverse order.
+        for child in self.iter_render_list().rev() {
+            child.enter_frame(context);
+        }
+
+        if context.avm_type() == AvmType::Avm2 {
+            let is_playing = self.playing();
+
+            {
+                let mut write = self.0.write(context.gc_context);
+                write.set_playing_at_frame_advance(is_playing);
+                write.set_frame_construction_pending(true);
+            }
+
+            if is_playing {
+                // Frame destruction happens in-line with frame number advance.
+                // If we expect to loop, we do not run `RemoveObject` tags.
+                if self.current_frame() < self.total_frames() {
+                    let mc = self.0.read();
+                    let data = mc.static_data.swf.clone();
+                    let mut reader = data.read_from(mc.tag_stream_pos);
+                    drop(mc);
+
+                    use swf::TagCode;
+                    let tag_callback =
+                        |reader: &mut SwfStream<'_>, tag_code, _tag_len| match tag_code {
+                            TagCode::RemoveObject => self.remove_object(context, reader, 1),
+                            TagCode::RemoveObject2 => self.remove_object(context, reader, 2),
+                            _ => Ok(()),
+                        };
+                    let _ = tag_utils::decode_tags(&mut reader, tag_callback, TagCode::ShowFrame);
+                }
+
+                self.advance_playhead(context);
+            }
+        }
+    }
+
     /// Construct objects placed on this frame.
     fn construct_frame(&self, context: &mut UpdateContext<'_, 'gc, '_>) {
         // New children will be constructed when they are instantiated and thus
@@ -1752,25 +1974,56 @@ impl<'gc> TDisplayObject<'gc> for MovieClip<'gc> {
                 false
             };
 
-            if self.determine_next_frame() != NextFrame::First {
-                let mc = self.0.read();
-                let data = mc.static_data.swf.clone();
-                let mut reader = data.read_from(mc.tag_stream_pos);
-                drop(mc);
+            if self.playing_at_frame_advance() && self.frame_construction_pending() {
+                if self.0.read().natural_playhead_action == NextFrame::First {
+                    // We had to lie about the current frame up in `enterFrame`,
+                    // so we have to set it back here. Otherwise, the goto
+                    // becomes a no-op.
+                    {
+                        let mut write = self.0.write(context.gc_context);
+                        let total_frames = write.total_frames();
+                        write.current_frame = total_frames;
+                    }
 
-                use swf::TagCode;
-                let tag_callback = |reader: &mut SwfStream<'_>, tag_code, tag_len| match tag_code {
-                    TagCode::PlaceObject => self.place_object(context, reader, tag_len, 1),
-                    TagCode::PlaceObject2 => self.place_object(context, reader, tag_len, 2),
-                    TagCode::PlaceObject3 => self.place_object(context, reader, tag_len, 3),
-                    TagCode::PlaceObject4 => self.place_object(context, reader, tag_len, 4),
-                    _ => Ok(()),
-                };
-                let _ = tag_utils::decode_tags(&mut reader, tag_callback, TagCode::ShowFrame);
+                    self.run_goto(context, 1, true);
+                } else {
+                    let mc = self.0.read();
+                    let data = mc.static_data.swf.clone();
+                    let mut reader = data.read_from(mc.tag_stream_pos);
+                    drop(mc);
+
+                    use swf::TagCode;
+                    let tag_callback =
+                        |reader: &mut SwfStream<'_>, tag_code, tag_len| match tag_code {
+                            TagCode::PlaceObject => self.place_object(context, reader, tag_len, 1),
+                            TagCode::PlaceObject2 => self.place_object(context, reader, tag_len, 2),
+                            TagCode::PlaceObject3 => self.place_object(context, reader, tag_len, 3),
+                            TagCode::PlaceObject4 => self.place_object(context, reader, tag_len, 4),
+                            _ => Ok(()),
+                        };
+                    let _ = tag_utils::decode_tags(&mut reader, tag_callback, TagCode::ShowFrame);
+                }
             }
+
+            self.0
+                .write(context.gc_context)
+                .set_frame_construction_pending(false);
 
             if needs_construction {
                 self.construct_as_avm2_object(context);
+
+                // AVM2 roots work exactly the same as any other timeline- or
+                // script-constructed object in terms of events received on
+                // them. However, because roots are added by the player itself,
+                // we can't fire the events until we run our first frame, so we
+                // have to actually check if we've just built the root and act
+                // like it just got added to the timeline.
+                let root = self.avm2_root(context);
+                let self_dobj: DisplayObject<'gc> = (*self).into();
+                if DisplayObject::option_ptr_eq(Some(self_dobj), root) {
+                    dispatch_added_event_only(self_dobj, context);
+                    dispatch_added_to_stage_event_only(self_dobj, context);
+                }
             }
         }
     }
@@ -1786,7 +2039,8 @@ impl<'gc> TDisplayObject<'gc> for MovieClip<'gc> {
         }
 
         // Run my SWF tags.
-        if self.playing() {
+        if context.avm_type() == AvmType::Avm1 && self.playing() || self.playing_at_frame_advance()
+        {
             self.run_frame_internal(context, true);
         }
     }
@@ -1798,35 +2052,51 @@ impl<'gc> TDisplayObject<'gc> for MovieClip<'gc> {
 
         if let Some(avm2_object) = avm2_object {
             if let Some(frame_id) = write.queued_script_frame {
-                let is_fresh_frame = write.queued_script_frame != write.last_queued_script_frame;
-
-                write.last_queued_script_frame = Some(frame_id);
-                write.queued_script_frame = None;
-                write
+                // If we are already executing frame scripts, then we shouldn't
+                // run frame scripts recursively. This is because AVM2 can run
+                // gotos, which will both queue and run frame scripts for the
+                // whole movie again. If a goto is attempting to queue frame
+                // scripts on us AGAIN, we should allow the current stack to
+                // wind down before handling that.
+                if !write
                     .flags
-                    .insert(MovieClipFlags::EXECUTING_AVM2_FRAME_SCRIPT);
+                    .contains(MovieClipFlags::EXECUTING_AVM2_FRAME_SCRIPT)
+                {
+                    let is_fresh_frame =
+                        write.queued_script_frame != write.last_queued_script_frame;
 
-                if is_fresh_frame {
-                    while let Some(fs) = write.frame_scripts.get(index) {
-                        if fs.frame_id == frame_id {
-                            let callable = fs.callable;
-                            drop(write);
-                            if let Err(e) = Avm2::run_stack_frame_for_callable(
-                                callable,
-                                Some(avm2_object),
-                                &[],
-                                context,
-                            ) {
-                                log::error!("Error occured when running AVM2 frame script: {}", e);
+                    write.last_queued_script_frame = Some(frame_id);
+                    write.queued_script_frame = None;
+                    write
+                        .flags
+                        .insert(MovieClipFlags::EXECUTING_AVM2_FRAME_SCRIPT);
+
+                    if is_fresh_frame {
+                        while let Some(fs) = write.frame_scripts.get(index) {
+                            if fs.frame_id == frame_id {
+                                let callable = fs.callable;
+                                drop(write);
+                                if let Err(e) = Avm2::run_stack_frame_for_callable(
+                                    callable,
+                                    Some(avm2_object),
+                                    &[],
+                                    context,
+                                ) {
+                                    log::error!(
+                                        "Error occured when running AVM2 frame script: {}",
+                                        e
+                                    );
+                                }
+                                write = self.0.write(context.gc_context);
                             }
-                            write = self.0.write(context.gc_context);
-                            write
-                                .flags
-                                .remove(MovieClipFlags::EXECUTING_AVM2_FRAME_SCRIPT);
-                        }
 
-                        index += 1;
+                            index += 1;
+                        }
                     }
+
+                    write
+                        .flags
+                        .remove(MovieClipFlags::EXECUTING_AVM2_FRAME_SCRIPT);
                 }
             }
         }
@@ -2259,6 +2529,26 @@ impl<'gc> MovieClipData<'gc> {
 
     fn set_programmatically_played(&mut self) {
         self.flags |= MovieClipFlags::PROGRAMMATICALLY_PLAYED;
+    }
+
+    fn playing_at_frame_advance(&self) -> bool {
+        self.flags
+            .contains(MovieClipFlags::PLAYING_AT_FRAME_ADVANCE)
+    }
+
+    fn set_playing_at_frame_advance(&mut self, value: bool) {
+        self.flags
+            .set(MovieClipFlags::PLAYING_AT_FRAME_ADVANCE, value);
+    }
+
+    fn frame_construction_pending(&self) -> bool {
+        self.flags
+            .contains(MovieClipFlags::FRAME_CONSTRUCTION_PENDING)
+    }
+
+    fn set_frame_construction_pending(&mut self, value: bool) {
+        self.flags
+            .set(MovieClipFlags::FRAME_CONSTRUCTION_PENDING, value);
     }
 
     fn play(&mut self) {
@@ -3084,13 +3374,7 @@ impl<'gc, 'a> MovieClip<'gc> {
                 if let Some(child) = self.child_by_depth(place_object.depth.into()) {
                     child.replace_with(context, id);
                     child.apply_place_object(context, &place_object);
-                    if context.avm_type() == AvmType::Avm2 {
-                        // In AVM2 instantiation happens before frame advance so we
-                        // have to special-case that
-                        child.set_place_frame(context.gc_context, self.current_frame() + 1);
-                    } else {
-                        child.set_place_frame(context.gc_context, self.current_frame());
-                    }
+                    child.set_place_frame(context.gc_context, self.current_frame());
                 }
             }
             PlaceObjectAction::Modify => {
@@ -3412,6 +3696,17 @@ bitflags! {
         ///
         /// This causes any goto action to be queued and executed at the end of the script.
         const EXECUTING_AVM2_FRAME_SCRIPT = 1 << 3;
+
+        /// Whether this `MovieClip` was playing at the start of the frame.
+        ///
+        /// This flag is used in AVM2 to ensure that user code cannot pause a
+        /// frame-advancing update between phases of the update. It is not
+        /// necessary in AVM1, as the flag is only checked once per frame
+        /// update and thus torn updates cannot occur.
+        const PLAYING_AT_FRAME_ADVANCE = 1 << 4;
+
+        /// Whether this `MovieClip` needs frame construction.
+        const FRAME_CONSTRUCTION_PENDING = 1 << 5;
     }
 }
 
