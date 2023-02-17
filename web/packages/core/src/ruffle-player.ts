@@ -793,6 +793,8 @@ export class RufflePlayer extends HTMLElement {
     }
 
     private pointerDown(event: PointerEvent): void {
+        // Give option to disable context menu when touch support is being used
+        // to avoid a long press triggering the context menu. (#1972)
         if (event.pointerType === "touch" || event.pointerType === "pen") {
             this.isTouch = true;
         }
@@ -912,23 +914,6 @@ export class RufflePlayer extends HTMLElement {
         if (this.longPressTimer) {
             clearTimeout(this.longPressTimer);
             this.longPressTimer = null;
-        }
-    }
-
-    private startLongPressTimer(): void {
-        this.clearLongPressTimer();
-        this.longPressTimer = setTimeout(
-            () => this.clearLongPressTimer(),
-            this.longPressTimeout
-        );
-    }
-
-    private checkLongPress(event: PointerEvent): void {
-        if (this.longPressTimer) {
-            this.clearLongPressTimer();
-        } else if (!this.contextMenuSupported) {
-            this.showContextMenu(event);
-            event.stopPropagation();
         }
     }
 
