@@ -116,8 +116,11 @@ fn value_of<'gc>(
 pub fn create_class<'gc>(activation: &mut Activation<'_, 'gc>) -> GcCell<'gc, Class<'gc>> {
     let mc = activation.context.gc_context;
     let class = Class::new(
-        QName::new(activation.avm2().public_namespace, "Boolean"),
-        Some(Multiname::new(activation.avm2().public_namespace, "Object")),
+        QName::new(activation.avm2().public_namespace_base_version, "Boolean"),
+        Some(Multiname::new(
+            activation.avm2().public_namespace_base_version,
+            "Object",
+        )),
         Method::from_builtin(instance_init, "<Boolean instance initializer>", mc),
         Method::from_builtin(class_init, "<Boolean class initializer>", mc),
         mc,
@@ -142,7 +145,7 @@ pub fn create_class<'gc>(activation: &mut Activation<'_, 'gc>) -> GcCell<'gc, Cl
 
     const CONSTANTS_INT: &[(&str, i32)] = &[("length", 1)];
     write.define_constant_int_class_traits(
-        activation.avm2().public_namespace,
+        activation.avm2().public_namespace_base_version,
         CONSTANTS_INT,
         activation,
     );

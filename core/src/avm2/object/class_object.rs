@@ -1,6 +1,7 @@
 //! Class object impl
 
 use crate::avm2::activation::Activation;
+use crate::avm2::api_version::ApiVersion;
 use crate::avm2::class::{Allocator, AllocatorFn, Class, ClassHashWrapper};
 use crate::avm2::error::{make_error_1127, type_error};
 use crate::avm2::function::Executable;
@@ -373,7 +374,7 @@ impl<'gc> ClassObject<'gc> {
             for interface_trait in iface_read.instance_traits() {
                 if !interface_trait.name().namespace().is_public() {
                     let public_name = QName::new(
-                        activation.context.avm2.public_namespace,
+                        activation.context.avm2.public_namespaces[&ApiVersion::VM_INTERNAL],
                         interface_trait.name().local_name(),
                     );
                     self.instance_vtable().copy_property_for_interface(

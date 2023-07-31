@@ -16,6 +16,8 @@ use gc_arena::{Collect, GcCell, Mutation};
 use swf::avm2::read::Reader;
 use swf::DoAbc2Flag;
 
+use num_traits::FromPrimitive;
+
 #[macro_export]
 macro_rules! avm_debug {
     ($avm: expr, $($arg:tt)*) => (
@@ -27,6 +29,7 @@ macro_rules! avm_debug {
 
 pub mod activation;
 mod amf;
+pub mod api_version;
 mod array;
 pub mod bytearray;
 mod call_stack;
@@ -74,6 +77,7 @@ pub use crate::avm2::object::{
 pub use crate::avm2::qname::QName;
 pub use crate::avm2::value::Value;
 
+use self::api_version::ApiVersion;
 use self::object::WeakObject;
 use self::scope::Scope;
 
@@ -110,7 +114,12 @@ pub struct Avm2<'gc> {
     /// However, it's not strictly defined which items end up there.
     toplevel_global_object: Option<Object<'gc>>,
 
-    pub public_namespace: Namespace<'gc>,
+    /// The public namespace, versioned with `ApiVersion::ALL_VERSIONS`.
+    /// When calling into user code, you should almost always use `find_public_namespace`
+    /// instead, as it will return the correct version for the current call stack.
+    public_namespace_base_version: Namespace<'gc>,
+    /// Cached public namespaces for each `ApiVersion`
+    public_namespaces: FnvHashMap<ApiVersion, Namespace<'gc>>,
     pub internal_namespace: Namespace<'gc>,
     pub as3_namespace: Namespace<'gc>,
     pub vector_public_namespace: Namespace<'gc>,
@@ -152,6 +161,13 @@ pub struct Avm2<'gc> {
     /// strong references around (this matches Flash's behavior).
     orphan_objects: Rc<Vec<DisplayObjectWeak<'gc>>>,
 
+    /// The api version of our root movie clip. Note - this is used as the
+    /// api version for swfs loaded via `Loader`, overriding the api version
+    /// specified in the loaded SWF. This is only used for API versioning (hiding
+    /// definitions from playerglobals) - version-specific behavior in things like
+    /// `gotoAndPlay` uses the current movie clip's SWF version.
+    pub root_api_version: ApiVersion,
+
     #[cfg(feature = "avm_debug")]
     pub debug_output: bool,
 }
@@ -163,6 +179,14 @@ impl<'gc> Avm2<'gc> {
         let stage_domain =
             Domain::uninitialized_domain(context.gc_context, Some(playerglobals_domain));
 
+        let public_namespaces = (0..=(ApiVersion::VM_INTERNAL as u8))
+            .flat_map(ApiVersion::from_u8)
+            .map(|v| {
+                let ns = Namespace::package("", v, context);
+                (v, ns)
+            })
+            .collect();
+
         Self {
             player_version,
             stack: Vec::new(),
@@ -173,13 +197,23 @@ impl<'gc> Avm2<'gc> {
             system_classes: None,
             toplevel_global_object: None,
 
-            public_namespace: Namespace::package("", context),
+            public_namespace_base_version: Namespace::package("", ApiVersion::AllVersions, context),
+            public_namespaces,
             internal_namespace: Namespace::internal("", context),
-            as3_namespace: Namespace::package("http://adobe.com/AS3/2006/builtin", context),
-            vector_public_namespace: Namespace::package("__AS3__.vec", context),
+            as3_namespace: Namespace::package(
+                "http://adobe.com/AS3/2006/builtin",
+                ApiVersion::AllVersions,
+                context,
+            ),
+            vector_public_namespace: Namespace::package(
+                "__AS3__.vec",
+                ApiVersion::AllVersions,
+                context,
+            ),
             vector_internal_namespace: Namespace::internal("__AS3__.vec", context),
             proxy_namespace: Namespace::package(
                 "http://www.adobe.com/2006/actionscript/flash/proxy",
+                ApiVersion::AllVersions,
                 context,
             ),
             // these are required to facilitate shared access between Rust and AS
@@ -195,6 +229,9 @@ impl<'gc> Avm2<'gc> {
             broadcast_list: Default::default(),
 
             orphan_objects: Default::default(),
+
+            // Set the lowest version for now - this be overriden when we set our movie
+            root_api_version: ApiVersion::AllVersions,
 
             #[cfg(feature = "avm_debug")]
             debug_output: false,
@@ -628,6 +665,13 @@ impl<'gc> Avm2<'gc> {
 
     #[cfg(not(feature = "avm_debug"))]
     pub const fn set_show_debug_output(&self, _visible: bool) {}
+
+    /// Gets the public namespace, versioned based on the current root SWF.
+    /// See `AvmCore::findPublicNamespace()`
+    /// https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/AvmCore.cpp#L5809C25-L5809C25
+    pub fn find_public_namespace(&self) -> Namespace<'gc> {
+        self.public_namespaces[&self.root_api_version]
+    }
 }
 
 /// If the provided `DisplayObjectWeak` should have frames run, returns

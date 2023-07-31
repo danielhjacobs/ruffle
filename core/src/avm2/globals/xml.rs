@@ -74,7 +74,7 @@ pub fn name<'gc>(
     if let Some(local_name) = node.local_name() {
         avm2_stub_method!(activation, "XML", "name", "namespaces");
         // FIXME - use namespace
-        let namespace = activation.avm2().public_namespace;
+        let namespace = activation.avm2().public_namespace_base_version;
         Ok(QNameObject::from_name(activation, Multiname::new(namespace, local_name))?.into())
     } else {
         Ok(Value::Null)
@@ -88,7 +88,7 @@ pub fn namespace<'gc>(
 ) -> Result<Value<'gc>, Error<'gc>> {
     // FIXME: Implement namespace support (including prefix)
     avm2_stub_method!(activation, "XML", "namespace");
-    let namespace = activation.avm2().public_namespace;
+    let namespace = activation.avm2().public_namespace_base_version;
     Ok(NamespaceObject::from_namespace(activation, namespace)?.into())
 }
 
