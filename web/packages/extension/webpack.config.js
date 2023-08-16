@@ -53,13 +53,13 @@ function transformManifest(content, env) {
         manifest.browser_specific_settings = {
             gecko: {
                 id: firefoxExtensionId,
+                strict_min_version: "113.0",
             },
         };
 
-        // Firefox does not currently support declarativeNetRequest,
-        // see https://bugzilla.mozilla.org/show_bug.cgi?id=1687755
+        // Firefox does not currently support background service worker,
+        // see https://bugzilla.mozilla.org/show_bug.cgi?id=1573659
         manifest.background = { scripts: ["dist/background.js"] };
-        manifest.permissions = ["storage", "webRequest", "webRequestBlocking"];
     } else {
         manifest.version_name =
             versionChannel === "nightly"

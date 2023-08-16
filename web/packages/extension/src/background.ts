@@ -1,45 +1,6 @@
 import * as utils from "./utils";
-import { isSwf as isSwfCore } from "ruffle-core";
 
 const RULE_SWF_URL = 1;
-
-function isSwf(
-    details:
-        | chrome.webRequest.WebResponseHeadersDetails
-        | browser.webRequest._OnHeadersReceivedDetails,
-) {
-    // TypeScript doesn't compile without this explicit type declaration.
-    const headers: (
-        | chrome.webRequest.HttpHeader
-        | browser.webRequest._HttpHeaders
-    )[] = details.responseHeaders!;
-    const typeHeader = headers.find(
-        ({ name }) => name.toLowerCase() === "content-type",
-    );
-    if (!typeHeader) {
-        return false;
-    }
-
-    const mimeType = typeHeader
-        .value!.toLowerCase()
-        .match(/^\s*(.*?)\s*(?:;.*)?$/)![1]!;
-
-    return isSwfCore(details.url, mimeType);
-}
-
-function onHeadersReceived(
-    details:
-        | chrome.webRequest.WebResponseHeadersDetails
-        | browser.webRequest._OnHeadersReceivedDetails,
-) {
-    if (isSwf(details)) {
-        const baseUrl = utils.runtime.getURL("player.html");
-        return {
-            redirectUrl: `${baseUrl}#${details.url}`,
-        };
-    }
-    return undefined;
-}
 
 async function enable() {
     if (chrome?.declarativeNetRequest) {
@@ -63,15 +24,6 @@ async function enable() {
             removeRuleIds: [RULE_SWF_URL],
             addRules: rules,
         });
-    } else {
-        (chrome || browser).webRequest.onHeadersReceived.addListener(
-            onHeadersReceived,
-            {
-                urls: ["<all_urls>"],
-                types: ["main_frame", "sub_frame"],
-            },
-            ["blocking", "responseHeaders"],
-        );
     }
 
     if (chrome?.scripting) {
@@ -100,10 +52,6 @@ async function disable() {
         await chrome.declarativeNetRequest.updateDynamicRules({
             removeRuleIds: [RULE_SWF_URL],
         });
-    } else {
-        (chrome || browser).webRequest.onHeadersReceived.removeListener(
-            onHeadersReceived,
-        );
     }
 
     if (chrome?.scripting) {
