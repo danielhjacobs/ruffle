@@ -21,7 +21,7 @@ pub struct Namespace<'gc>(Gc<'gc, NamespaceData<'gc>>);
 enum NamespaceData<'gc> {
     // note: this is the default "public namespace", corresponding to both
     // ABC Namespace and PackageNamespace
-    Namespace(AvmAtom<'gc>, ApiVersion),
+    Namespace(AvmAtom<'gc>, #[collect(require_static)] ApiVersion),
     PackageInternal(AvmAtom<'gc>),
     Protected(AvmAtom<'gc>),
     Explicit(AvmAtom<'gc>),

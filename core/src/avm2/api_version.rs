@@ -1,10 +1,7 @@
-use gc_arena::Collect;
-
 // Based on https://github.com/adobe/avmplus/blob/master/core/api-versions.h
 // FIXME - if we ever add in AIR emulation, then implement the 'version series' logic.
 // For now, it's fine to just compare Flash player version against air versions directly.
-#[derive(Copy, Clone, Collect, PartialEq, Eq, PartialOrd, Ord, Hash, FromPrimitive, Debug)]
-#[collect(require_static)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, FromPrimitive, Debug)]
 #[allow(non_camel_case_types)]
 pub enum ApiVersion {
     AllVersions = 0,

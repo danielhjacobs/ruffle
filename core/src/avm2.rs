@@ -119,7 +119,8 @@ pub struct Avm2<'gc> {
     /// instead, as it will return the correct version for the current call stack.
     public_namespace_base_version: Namespace<'gc>,
     /// Cached public namespaces for each `ApiVersion`
-    public_namespaces: FnvHashMap<ApiVersion, Namespace<'gc>>,
+    // FIXME - use `enum_map` once gc-arena supports it
+    public_namespaces: Vec<Namespace<'gc>>,
     pub internal_namespace: Namespace<'gc>,
     pub as3_namespace: Namespace<'gc>,
     pub vector_public_namespace: Namespace<'gc>,
@@ -166,6 +167,7 @@ pub struct Avm2<'gc> {
     /// specified in the loaded SWF. This is only used for API versioning (hiding
     /// definitions from playerglobals) - version-specific behavior in things like
     /// `gotoAndPlay` uses the current movie clip's SWF version.
+    #[collect(require_static)]
     pub root_api_version: ApiVersion,
 
     #[cfg(feature = "avm_debug")]
@@ -180,11 +182,7 @@ impl<'gc> Avm2<'gc> {
             Domain::uninitialized_domain(context.gc_context, Some(playerglobals_domain));
 
         let public_namespaces = (0..=(ApiVersion::VM_INTERNAL as u8))
-            .flat_map(ApiVersion::from_u8)
-            .map(|v| {
-                let ns = Namespace::package("", v, context);
-                (v, ns)
-            })
+            .map(|val| Namespace::package("", ApiVersion::from_u8(val).unwrap(), context))
             .collect();
 
         Self {
@@ -670,7 +668,7 @@ impl<'gc> Avm2<'gc> {
     /// See `AvmCore::findPublicNamespace()`
     /// https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/AvmCore.cpp#L5809C25-L5809C25
     pub fn find_public_namespace(&self) -> Namespace<'gc> {
-        self.public_namespaces[&self.root_api_version]
+        self.public_namespaces[self.root_api_version as usize]
     }
 }
 
