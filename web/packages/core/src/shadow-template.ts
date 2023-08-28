@@ -390,8 +390,70 @@ export function applyStaticStyles(styleElement: HTMLStyleElement) {
         `#video-holder {
             padding-top: 20px;
         }`,
+
+        `.slider-container {
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+        }`,
+
+        `#volume-slider {
+            margin-left: 10px;
+            margin-right: 10px;
+        }`,
+
+        `#volume-slider-text {
+            text-align: right;
+            width: 28px;
+        }`,
     ];
     insertRules(styleElement.sheet, rules);
+}
+
+/**
+ *
+ * @param htmlType The type of input element.
+ * @param id The id of the input element.
+ * @param min The min of the input element.
+ * @param max The max of the input element.
+ * @param step The step of the input element.
+ *
+ * @returns The newly created HTMLInputElement
+ */
+function createInputElement(
+    htmlType: string,
+    id: string,
+    min?: string,
+    max?: string,
+    step?: string,
+): HTMLInputElement {
+    const element = document.createElement("input");
+    element.type = htmlType;
+    element.id = id;
+    if (min) {
+        element.min = min;
+    }
+    if (max) {
+        element.max = max;
+    }
+    if (step) {
+        element.step = step;
+    }
+    return element;
+}
+
+/**
+ *
+ * @param id The id of the label element.
+ * @param htmlFor The for of the label element.
+ *
+ * @returns The newly created HTMLLabelElement
+ */
+function createLabelElement(id: string, htmlFor: string): HTMLLabelElement {
+    const element = document.createElement("label");
+    element.id = id;
+    element.htmlFor = htmlFor;
+    return element;
 }
 
 /**
@@ -689,6 +751,36 @@ const videoModalClose = createElement("span", undefined, "close-modal");
 videoModalClose.textContent = "\u00D7";
 const videoHolder = createElement("div", "video-holder");
 
+// Volume control elements
+const volumeControlsModal = createElement(
+    "div",
+    "volume-controls-modal",
+    "modal hidden",
+);
+const volumeModalArea = createElement("div", undefined, "modal-area");
+const volumeModalClose = createElement("span", undefined, "close-modal");
+volumeModalClose.textContent = "\u00D7";
+const volumeControls = createElement("div", "volume-controls");
+const volumeControlsHeading = createElement("h2", "volume-controls-heading");
+const muteCheckboxLabel = createLabelElement(
+    "mute-checkbox-label",
+    "mute-checkbox",
+);
+const muteCheckbox = createInputElement("checkbox", "mute-checkbox");
+const sliderContainer = createElement("div", undefined, "slider-container");
+const volumeSliderLabel = createLabelElement(
+    "volume-slider-label",
+    "volume-slider",
+);
+const volumeSlider = createInputElement(
+    "range",
+    "volume-slider",
+    "0",
+    "100",
+    "1",
+);
+const volumeSliderText = createElement("span", "volume-slider-text");
+
 // Context menu overlay elements
 const contextMenuOverlay = createElement(
     "div",
@@ -745,6 +837,18 @@ appendElement(ruffleShadowTemplate.content, videoModal);
 appendElement(videoModal, videoModalArea);
 appendElement(videoModalArea, videoModalClose);
 appendElement(videoModalArea, videoHolder);
+// Volume control append
+appendElement(ruffleShadowTemplate.content, volumeControlsModal);
+appendElement(volumeControlsModal, volumeModalArea);
+appendElement(volumeModalArea, volumeModalClose);
+appendElement(volumeModalArea, volumeControls);
+appendElement(volumeControls, volumeControlsHeading);
+appendElement(volumeControls, muteCheckboxLabel);
+appendElement(volumeControls, muteCheckbox);
+appendElement(volumeControls, sliderContainer);
+appendElement(sliderContainer, volumeSliderLabel);
+appendElement(sliderContainer, volumeSlider);
+appendElement(sliderContainer, volumeSliderText);
 // Context menu overlay append
 appendElement(ruffleShadowTemplate.content, contextMenuOverlay);
 appendElement(contextMenuOverlay, contextMenu);
