@@ -177,6 +177,7 @@ export class RufflePlayer extends HTMLElement {
     private pointerMoveMaxDistance = 0;
 
     private volumeSettings: VolumeControls;
+    private resizeObserver: ResizeObserver;
 
     /**
      * Triggered when a movie metadata has been loaded (such as movie width and height).
@@ -249,6 +250,14 @@ export class RufflePlayer extends HTMLElement {
 
         this.unmuteOverlay = this.shadow.getElementById("unmute-overlay")!;
         this.splashScreen = this.shadow.getElementById("splash-screen")!;
+        this.resizeObserver = new ResizeObserver((entries) => {
+            for (const entry of entries) {
+                if (entry.target === this.parentElement) {
+                    setTimeout(() => this.updateStyles(), 0);
+                    break;
+                }
+            }
+        });
         this.virtualKeyboard = <HTMLInputElement>(
             this.shadow.getElementById("virtual-keyboard")!
         );
@@ -591,9 +600,32 @@ export class RufflePlayer extends HTMLElement {
                     heightAttr.value,
                 );
                 if (height !== null) {
-                    this.dynamicStyles.sheet.insertRule(
+                    const heightIndex = this.dynamicStyles.sheet.insertRule(
                         `:host { height: ${height}; }`,
                     );
+                    // If this RufflePlayer was created from an embed with a non-0px computed height
+                    // while the created RufflePlayer has a computed height of 0px and its parentElement has a
+                    // computed height not of 0px, set the RufflePlayer height to 200px.
+                    // For some reason, even though https://drafts.csswg.org/css-sizing-3/#propdef-height says
+                    // the computed value for height should be calculated for percentage values, embeds without a src
+                    // with percentage heights return percentages for their computed height values.
+                    setTimeout(() => {
+                        if (
+                            this.dynamicStyles.sheet &&
+                            window.getComputedStyle(this).height === "0px" &&
+                            height.endsWith("%") &&
+                            this.parentElement &&
+                            window.getComputedStyle(this.parentElement)
+                                .height !== "0px"
+                        ) {
+                            this.resizeObserver.disconnect();
+                            this.resizeObserver.observe(this.parentElement);
+                            this.dynamicStyles.sheet.deleteRule(heightIndex);
+                            this.dynamicStyles.sheet.insertRule(
+                                `:host { height: 200px !important; }`,
+                            );
+                        }
+                    }, 0);
                 }
             }
         }
