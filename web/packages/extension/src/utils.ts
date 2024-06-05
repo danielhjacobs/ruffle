@@ -70,6 +70,9 @@ export let runtime: {
     };
     getURL: (path: string) => string;
 };
+export let declarativeNetRequest:
+    | typeof browser.declarativeNetRequest
+    | typeof chrome.declarativeNetRequest;
 
 export let openOptionsPage: () => Promise<void>;
 export let openPlayerPage: () => Promise<void>;
@@ -103,6 +106,7 @@ function promisifyStorageArea(
 }
 
 if (typeof chrome !== "undefined") {
+    declarativeNetRequest = chrome.declarativeNetRequest;
     i18n = chrome.i18n;
     scripting = chrome.scripting as ScriptingType;
 
@@ -145,6 +149,7 @@ if (typeof chrome !== "undefined") {
             chrome.tabs.create({ url: "/player.html" }, cb),
         );
 } else if (typeof browser !== "undefined") {
+    declarativeNetRequest = browser.declarativeNetRequest;
     i18n = browser.i18n;
     scripting = browser.scripting as ScriptingType;
     storage = browser.storage;
