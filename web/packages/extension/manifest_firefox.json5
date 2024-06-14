@@ -48,7 +48,8 @@
         "open_in_tab": true,
     },
     "permissions": [
-        "<all_urls>", // // To allow script injecting + the internal player to bypass CORS
+        "<all_urls>", // // To allow script injecting + the internal player to bypass CORS + SWF takeover
+        "declarativeNetRequest",
         "scripting",
         "storage"
     ],
