@@ -1106,9 +1106,7 @@ export class RufflePlayer extends HTMLElement {
      */
     private saveFile(blob: Blob, name: string): void {
         const blobURL = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = blobURL;
-        link.download = name;
+        const link = <a href={blobURL} download={name}></a> as HTMLAnchorElement;
         link.click();
         URL.revokeObjectURL(blobURL);
     }
@@ -1265,56 +1263,28 @@ export class RufflePlayer extends HTMLElement {
             const solName = key.split("/").pop();
             const solData = localStorage.getItem(key);
             if (solName && solData && this.isB64SOL(solData)) {
-                const row = document.createElement("TR");
-                const keyCol = document.createElement("TD");
-                keyCol.textContent = solName;
-                keyCol.title = key;
-                const downloadCol = document.createElement("TD");
-                const downloadSpan = document.createElement("SPAN");
-                downloadSpan.className = "save-option";
-                downloadSpan.id = "download-save";
-                downloadSpan.title = text("save-download");
-                downloadSpan.addEventListener("click", () => {
+                const handleDownload = () => {
                     const blob = this.base64ToBlob(
                         solData,
                         "application/octet-stream",
                     );
                     this.saveFile(blob, solName + ".sol");
-                });
-                downloadCol.appendChild(downloadSpan);
-                const replaceCol = document.createElement("TD");
-                const replaceInput = document.createElement(
-                    "INPUT",
-                ) as HTMLInputElement;
-                replaceInput.type = "file";
-                replaceInput.accept = ".sol";
-                replaceInput.className = "replace-save";
-                replaceInput.id = "replace-save-" + key;
-                const replaceLabel = document.createElement(
-                    "LABEL",
-                ) as HTMLLabelElement;
-                replaceLabel.htmlFor = "replace-save-" + key;
-                replaceLabel.className = "save-option";
-                replaceLabel.id = "replace-save";
-                replaceLabel.title = text("save-replace");
-                replaceInput.addEventListener("change", (event) =>
-                    this.replaceSOL(event, key),
+                };
+                const row = (
+                    <tr>
+                        <td title={key}>{solName}</td>
+                        <td>
+                            <span class="save-option" id="download-save" title={ text("save-download") } onClick={handleDownload}></span>
+                        </td>
+                        <td>
+                            <input id={"replace-save-" + key} class="replace-save" type="file" accept=".sol" onChange={(event: Event) => this.replaceSOL(event, key)} />
+                            <label for={"replace-save-" + key} class="save-option" id="replace-save">{ text("save-replace") }</label>
+                        </td>
+                        <td>
+                            <span class="save-option" id="delete-save" title={ text("save-delete") } onClick={() => this.deleteSave(key)}></span>
+                        </td>
+                    </tr>
                 );
-                replaceCol.appendChild(replaceInput);
-                replaceCol.appendChild(replaceLabel);
-                const deleteCol = document.createElement("TD");
-                const deleteSpan = document.createElement("SPAN");
-                deleteSpan.className = "save-option";
-                deleteSpan.id = "delete-save";
-                deleteSpan.title = text("save-delete");
-                deleteSpan.addEventListener("click", () =>
-                    this.deleteSave(key),
-                );
-                deleteCol.appendChild(deleteSpan);
-                row.appendChild(keyCol);
-                row.appendChild(downloadCol);
-                row.appendChild(replaceCol);
-                row.appendChild(deleteCol);
                 saveTable.appendChild(row);
             }
         });
