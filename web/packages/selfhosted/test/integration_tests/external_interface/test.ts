@@ -69,7 +69,7 @@ describe("ExternalInterface", () => {
     it("loads the test", async () => {
         await openTest(browser, "integration_tests/external_interface");
         await injectRuffleAndWait(browser);
-        const player = await browser.$("<ruffle-object>");
+        const player = await browser.$("ruffle-object");
         await playAndMonitor(
             browser,
             player,
@@ -108,7 +108,7 @@ ExternalInterface.objectID: "flash_name"
     });
 
     it("responds to 'log'", async () => {
-        const player = await browser.$("<ruffle-object>");
+        const player = await browser.$("ruffle-object");
         await browser.execute(
             (player) =>
                 player.log("Hello world!", {
@@ -136,7 +136,7 @@ ExternalInterface.objectID: "flash_name"
     });
 
     it("returns a value", async () => {
-        const player = await browser.$("<ruffle-object>");
+        const player = await browser.$("ruffle-object");
         const returned = await browser.execute(
             (player) => player.returnAValue(123.4),
             player,
@@ -155,11 +155,11 @@ ExternalInterface.objectID: "flash_name"
     });
 
     it("calls a method with delay", async () => {
-        const player = await browser.$("<ruffle-object>");
+        const player = await browser.$("ruffle-object");
         await browser.execute(
             (player) =>
                 player.callMethodWithDelay("window.RuffleTest.set", true),
-            player,
+            await player,
         );
         const actualValue = await getCalledValue(browser);
         expect(actualValue).to.eql([true]);
@@ -179,13 +179,16 @@ ExternalInterface.objectID: "flash_name"
     // [NA] Broken on Ruffle at time of writing
     it.skip("calls a reentrant JS method", async () => {
         // JS -> Flash -> JS within one call
-        const player = await browser.$("<ruffle-object>");
-        const actualValue = await browser.execute((player) => {
-            player.callMethodImmediately("window.RuffleTest.set", {
-                nested: { object: { complex: true } },
-            });
-            return window.RuffleTest.get();
-        }, player);
+        const player = await browser.$("ruffle-object");
+        const actualValue = await browser.execute(
+            (player) => {
+                player.callMethodImmediately("window.RuffleTest.set", {
+                    nested: { object: { complex: true } },
+                });
+                return window.RuffleTest.get();
+            },
+            await player,
+        );
 
         expect(actualValue).to.eql({
             nested: { object: { complex: true } },
@@ -211,10 +214,16 @@ ExternalInterface.objectID: "flash_name"
 
     it("calls a reentrant Flash method", async () => {
         // Flash -> JS -> Flash within one call
-        const player = await browser.$("<ruffle-object>");
-        await browser.execute((player) => {
-            player.callMethodWithDelay("window.RuffleTest.log", "Reentrant!");
-        }, player);
+        const player = await browser.$("ruffle-object");
+        await browser.execute(
+            (player) => {
+                player.callMethodWithDelay(
+                    "window.RuffleTest.log",
+                    "Reentrant!",
+                );
+            },
+            await player,
+        );
 
         // [NA] Because of the delay, if we fetch immediately we *may* just get part of the log.
         await browser.pause(200);
@@ -236,13 +245,16 @@ log called with 1 argument
     });
 
     it("supports a JS function as name", async () => {
-        const player = await browser.$("<ruffle-object>");
-        await browser.execute((player) => {
-            player.callMethodWithDelay(
-                "function(name){window.RuffleTest.set(name)}",
-                "test",
-            );
-        }, player);
+        const player = await browser.$("ruffle-object");
+        await browser.execute(
+            (player) => {
+                player.callMethodWithDelay(
+                    "function(name){window.RuffleTest.set(name)}",
+                    "test",
+                );
+            },
+            await player,
+        );
 
         // [NA] Because of the delay, if we fetch immediately we *may* just get part of the log.
         await browser.pause(200);
@@ -263,10 +275,13 @@ log called with 1 argument
     });
 
     it("supports calling a method that doesn't exist", async () => {
-        const player = await browser.$("<ruffle-object>");
-        await browser.execute((player) => {
-            player.callMethodWithDelay("does.not.exist");
-        }, player);
+        const player = await browser.$("ruffle-object");
+        await browser.execute(
+            (player) => {
+                player.callMethodWithDelay("does.not.exist");
+            },
+            await player,
+        );
 
         // [NA] Because of the delay, if we fetch immediately we *may* just get part of the log.
         await browser.pause(200);
@@ -283,12 +298,15 @@ log called with 1 argument
     });
 
     it("doesn't enforce Strict Mode", async () => {
-        const player = await browser.$("<ruffle-object>");
-        await browser.execute((player) => {
-            player.callMethodWithDelay(
-                "function(){return aPropertyThatDoesntExist = 'success!'}",
-            );
-        }, player);
+        const player = await browser.$("ruffle-object");
+        await browser.execute(
+            (player) => {
+                player.callMethodWithDelay(
+                    "function(){return aPropertyThatDoesntExist = 'success!'}",
+                );
+            },
+            await player,
+        );
 
         // [NA] Because of the delay, if we fetch immediately we *may* just get part of the log.
         await browser.pause(200);
@@ -305,7 +323,7 @@ log called with 1 argument
     });
 
     it("allows overriding a Ruffle method", async () => {
-        const player = await browser.$("<ruffle-object>");
+        const player = await browser.$("ruffle-object");
         await browser.execute((player) => {
             player.addAnotherCallback("isPlaying", "isPlaying from EI");
         }, player);
@@ -325,7 +343,7 @@ log called with 1 argument
     });
 
     it("allows redefining a method", async () => {
-        const player = await browser.$("<ruffle-object>");
+        const player = await browser.$("ruffle-object");
 
         // First definition
         await browser.execute((player) => {

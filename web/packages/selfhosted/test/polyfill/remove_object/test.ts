@@ -14,7 +14,7 @@ describe("Remove object", () => {
         await injectRuffleAndWait(browser);
         const actual = await browser
             .$("#test-container")
-            .getHTML({ includeSelectorTag: false });
+            .getHTML({ includeSelectorTag: false, pierceShadowRoot: false });
         const expected = fs.readFileSync(
             `${import.meta.dirname}/expected.html`,
             "utf8",
@@ -29,7 +29,7 @@ describe("Remove object", () => {
         });
         const actual = await browser
             .$("#test-container")
-            .getHTML({ includeSelectorTag: false });
+            .getHTML({ includeSelectorTag: false, pierceShadowRoot: false });
         const expected = "";
         expect(actual).html.to.equal(expected);
     });

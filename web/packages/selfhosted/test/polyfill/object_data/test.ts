@@ -12,11 +12,11 @@ describe("Object with only data attribute", () => {
 
     it("Polyfills", async () => {
         await injectRuffleAndWait(browser);
-        await browser.$("<ruffle-object />").waitForExist();
+        await browser.$("ruffle-object").waitForExist();
 
         const actual = await browser
             .$("#test-container")
-            .getHTML({ includeSelectorTag: false });
+            .getHTML({ includeSelectorTag: false, pierceShadowRoot: false });
         const expected = fs.readFileSync(
             `${import.meta.dirname}/expected.html`,
             "utf8",
@@ -27,7 +27,7 @@ describe("Object with only data attribute", () => {
     it("Plays a movie", async () => {
         await playAndMonitor(
             browser,
-            await browser.$("#test-container").$("<ruffle-object />"),
+            await browser.$("#test-container").$("ruffle-object"),
         );
     });
 });

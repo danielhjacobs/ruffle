@@ -14,7 +14,7 @@ describe("Object without type and classid attributes", () => {
         await injectRuffleAndWait(browser);
         const actual = await browser
             .$("#test-container")
-            .getHTML({ includeSelectorTag: false });
+            .getHTML({ includeSelectorTag: false, pierceShadowRoot: false });
         const expected = fs.readFileSync(
             `${import.meta.dirname}/expected.html`,
             "utf8",
@@ -25,7 +25,7 @@ describe("Object without type and classid attributes", () => {
     it("Plays a movie", async () => {
         await playAndMonitor(
             browser,
-            await browser.$("#test-container").$("<ruffle-object />"),
+            await browser.$("#test-container").$("ruffle-object"),
         );
     });
 });

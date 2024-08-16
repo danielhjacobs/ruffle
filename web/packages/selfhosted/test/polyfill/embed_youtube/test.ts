@@ -14,7 +14,7 @@ describe("Embed with Flash YouTube video", () => {
         await injectRuffleAndWait(browser);
         const actual = await browser
             .$("#test-container")
-            .getHTML({ includeSelectorTag: false });
+            .getHTML({ includeSelectorTag: false, pierceShadowRoot: false });
         const expected = fs.readFileSync(
             `${import.meta.dirname}/expected.html`,
             "utf8",
