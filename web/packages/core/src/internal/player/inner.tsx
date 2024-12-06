@@ -859,7 +859,14 @@ export class InnerPlayer {
 
             if ("url" in options) {
                 console.log(`Loading SWF file ${options.url}`);
-                this.swfUrl = new URL(options.url, document.baseURI);
+                const swfUrl = new URL(options.url, document.baseURI);
+                if (swfUrl.protocol === "file:") {
+                    const localFileUpload = <this.LocalFileUpload options={options} /> as HTMLDivElement;
+                    this.shadow.appendChild(localFileUpload);
+                    this.addModalJavaScript(localFileUpload);
+                    return;
+                }
+                this.swfUrl = swfUrl;
 
                 this.instance!.stream_from(
                     this.swfUrl.href,
@@ -1142,6 +1149,39 @@ export class InnerPlayer {
                 </td>
             </tr>
         );
+    }
+
+    private LocalFileUpload = ({options}: {options: URLLoadOptions}): HTMLDivElement => {
+        const input = <input type="file" /> as HTMLInputElement;
+        input.onchange = async (event) => {
+            const target = event.target as HTMLInputElement;
+            if (target?.files?.length ?? 0 > 0) {
+                const file = target.files![0];
+                if (file) {
+                    this.instance!.load_data(
+                        new Uint8Array(await file.arrayBuffer()),
+                        sanitizeParameters(options.parameters),
+                        file.name || "movie.swf",
+                    );
+                    const localFileUploadModal = this.shadow.getElementById(
+                        "local-file-upload-modal",
+                    ) as HTMLDivElement;
+                    if (localFileUploadModal) {
+                        localFileUploadModal.classList.add("hidden");
+                    }
+                }
+            }
+        };
+        return (
+            <div id="local-file-upload-modal" class="modal">
+                <div class="modal-area">
+                    {text("upload-local-file", {url: options.url})}
+                    <br />
+                    {input as HTMLElement}
+                    <span class="close-modal"></span>
+                </div>
+            </div>
+        ) as HTMLDivElement;
     }
 
     /**

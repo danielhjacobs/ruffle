@@ -83,3 +83,4 @@ error-unknown =
         [true] If you are the server administrator, please try to upload a more recent version of Ruffle (current build is outdated: {$buildDate}).
         *[false] This isn't supposed to happen, so we'd really appreciate if you could file a bug!
     }
+upload-local-file = You are trying to load the local URL "{ $url }"  on the file: protocol. Browsers don't allow this for security reasons. Do you wish to open a file chooser which will ask you to upload the file?
