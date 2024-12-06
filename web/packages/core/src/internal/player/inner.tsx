@@ -1,6 +1,7 @@
 import type { RuffleHandle, ZipWriter } from "../../../dist/ruffle_web";
 import {
     AutoPlay,
+    BaseLoadOptions,
     ContextMenu,
     DataLoadOptions,
     DEFAULT_CONFIG,
@@ -24,6 +25,7 @@ import {
 } from "../errors";
 import { showPanicScreen } from "../ui/panic";
 import { createRuffleBuilder } from "../../load-ruffle";
+import { isFlashEnabledBrowser } from "../../polyfills";
 import { lookupElement } from "../register-element";
 import { configureBuilder } from "../builder";
 import { referenceTypes } from "wasm-feature-detect";
@@ -860,6 +862,51 @@ export class InnerPlayer {
             // but this is the only extension I know completely breaks our WASM module if unsupported
             const necessaryExtensionsSupported: boolean = await referenceTypes();
             if (!necessaryExtensionsSupported) {
+                if (isFlashEnabledBrowser()) {
+                    let src;
+                    if ("data" in options) {
+                        try {
+	                        const arrayBuffer = getUnderlyingArrayBuffer(options.data);
+	                        const blob = new Blob([arrayBuffer], { type: 'application/x-shockwave-flash' });
+	                        const blobURL = URL.createObjectURL(blob);
+	                        src = blobURL;
+                        } catch {}
+                    }
+                    if ("url" in options) {
+                        src = new URL(options.url, document.baseURI).href
+                    }
+                    if (src) {
+                        const flashEmbed = Object.assign(document.createElement('embed'), {
+                            src: src,
+                            width: "100%",
+                            height: "100%",
+                        });
+                        const attributes = [
+                            "base",
+                            "allowScriptAccess",
+                            "wmode",
+                            "allowFullscreen",
+                            "menu",
+                            "scale",
+                            "salign",
+                            "quality",
+                        ];
+                        this.setAttributesFromConfig(flashEmbed, attributes);
+
+                        const sanitizedParameters = sanitizeParameters(options.parameters);
+                        const flashVars = Object.entries(sanitizedParameters)
+                            .map(([key, value]) => `${key}=${encodeURIComponent(value!)}`)
+                            .join("&");
+
+                        if (flashVars) {
+                            flashEmbed.setAttribute("flashvars", flashVars);
+                        }
+
+                        this.container.textContent = "";
+                        this.container.appendChild(flashEmbed);
+                        return;
+                    }
+                }
                 const baseError = new Error("Necessary WebAssembly extensions unsupported");
                 const loadError = new LoadRuffleWasmError(baseError);
                 this.panic(loadError);
@@ -1997,6 +2044,18 @@ export class InnerPlayer {
         // TODO: Move this to whatever function changes the ReadyState to Loaded when we have streaming support.
         this.element.dispatchEvent(new CustomEvent(InnerPlayer.LOADED_DATA));
     }
+
+    private setAttributesFromConfig(embed: HTMLElement, attributes: string[]) {
+        if (!this.loadedConfig) return;
+
+        attributes.forEach((attribute) => {
+            const value = this.loadedConfig![attribute as keyof BaseLoadOptions];
+            if (value !== null) {
+                // TS thinks value can be undefined, but it's not since loadedConfig falls back to DEFAULT_CONFIG.
+                embed.setAttribute(attribute, value!.toString());
+            }
+        });
+    }
 }
 
 /**
@@ -2255,6 +2314,19 @@ function isSolData(data: string): boolean {
        [0x00, 0x04, 0x00, 0x00, 0x00, 0x00].every((v, i) => data.charCodeAt(10 + i) === v)
     );
 }
+
+function getUnderlyingArrayBuffer(data: ArrayLike<number> | ArrayBufferLike): ArrayBuffer {
+    if (data instanceof ArrayBuffer) {
+        return data;
+    } else if (Array.isArray(data)) {
+        return new Uint8Array(data).buffer;
+    } else if (data && 'buffer' in data) {
+        return data.buffer as ArrayBuffer;
+    } else {
+        throw new TypeError('Data neither ArrayLike nor ArrayBufferLike');
+    }
+}
+
 
 /**
  * Parses a given string or null value to a boolean or null and returns it.
