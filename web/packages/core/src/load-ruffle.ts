@@ -63,11 +63,12 @@ async function fetchRuffle(
         ZipWriter,
     } = await (extensionsSupported
         ? import("../dist/ruffle_web-wasm_extensions")
-        : import("../dist/ruffle_web"));
+        : // @ts-expect-error TypeScript compiler is trying to do the import
+          import("../dist/%WASM_MVP%"));
     let response;
     const wasmUrl = extensionsSupported
         ? new URL("../dist/ruffle_web-wasm_extensions_bg.wasm", import.meta.url)
-        : new URL("../dist/ruffle_web_bg.wasm", import.meta.url);
+        : new URL("../dist/%WASM_MVP%_bg.wasm", import.meta.url);
     const wasmResponse = await fetch(wasmUrl);
     // The Pale Moon browser lacks full support for ReadableStream.
     // However, ReadableStream itself is defined.
