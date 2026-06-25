@@ -20,7 +20,7 @@ let reportLogging = async () => {};
 if (chrome) {
     const args = ["--disable-gpu", "--enable-unsafe-swiftshader"];
     if (headless) {
-        args.push("--headless");
+        args.push("--headless=new", "--no-sandbox", "--disable-dev-shm-usage");
     }
     capabilities.push({
         "wdio:maxInstances": maxInstances,
