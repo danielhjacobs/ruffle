@@ -196,6 +196,10 @@ jobs:
           npm ci
           npm run wdio -- --headless --parallel --${{ matrix.browser }}
 
+      - name: Dump Driver Logs to Console
+        if: failure()
+        run: cat wdio-logs/*.log
+
   # The rest is needed only because otherwise the real jobs couldn't be made required for merging PRs,
   # as they would fail the entire workflow run if skipped - this makes GitHub happy instead.
   # See:
