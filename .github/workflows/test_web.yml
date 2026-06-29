@@ -198,7 +198,12 @@ jobs:
 
       - name: Dump Driver Logs to Console
         if: failure()
-        run: cat wdio-logs/*.log
+        working-directory: web
+        run: |
+          echo "=== DIRECTORY CONTENTS ==="
+          ls -la wdio-logs/
+          echo "=== DRIVER LOGS ==="
+          cat wdio-logs/*
 
   # The rest is needed only because otherwise the real jobs couldn't be made required for merging PRs,
   # as they would fail the entire workflow run if skipped - this makes GitHub happy instead.
