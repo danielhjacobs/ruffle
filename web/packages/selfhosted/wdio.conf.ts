@@ -234,7 +234,7 @@ export const config: WebdriverIO.Config = {
     maxInstances: maxInstances,
     capabilities,
     // wdio produces a lot of spam on info
-    logLevel: "warn",
+    logLevel: "info",
     bail: 0,
     baseUrl: "http://localhost",
     waitforTimeout: 30000,
