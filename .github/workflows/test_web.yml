@@ -198,12 +198,18 @@ jobs:
 
       - name: Dump Driver Logs to Console
         if: failure()
-        working-directory: web
         run: |
-          echo "=== DIRECTORY CONTENTS ==="
-          ls -la wdio-logs/
-          echo "=== DRIVER LOGS ==="
-          cat wdio-logs/*
+          echo "=== SEARCHING FOR LOG DIRECTORY ==="
+          find . -type d -name "wdio-logs" -print
+          
+          echo "=== LOOKING FOR ANY FILE MATCHING WDIO LOGS ==="
+          find . -path "*/wdio-logs/*" || echo "No files inside wdio-logs found."
+          
+          echo "=== FAILED WORKSPACE ROOT LAYOUT ==="
+          ls -la
+          
+          echo "=== FAILED WEB SUBDIRECTORY LAYOUT ==="
+          ls -la web/
 
   # The rest is needed only because otherwise the real jobs couldn't be made required for merging PRs,
   # as they would fail the entire workflow run if skipped - this makes GitHub happy instead.
