@@ -199,18 +199,8 @@ jobs:
       - name: Dump Driver Logs to Console
         if: failure()
         run: |
-          echo "=== SEARCHING FOR LOG DIRECTORY ==="
-          find . -type d -name "wdio-logs" -print
-          
-          echo "=== LOOKING FOR ANY FILE MATCHING WDIO LOGS ==="
-          find . -path "*/wdio-logs/*" || echo "No files inside wdio-logs found."
-          
-          echo "=== FAILED WORKSPACE ROOT LAYOUT ==="
-          ls -la
-          
-          echo "=== FAILED WEB SUBDIRECTORY LAYOUT ==="
-          ls -la web/
-
+          echo "=== EDGEDRIVER CRASH ANALYSIS ==="
+          cat web/packages/selfhosted/wdio-logs/*-edgedriver.log
   # The rest is needed only because otherwise the real jobs couldn't be made required for merging PRs,
   # as they would fail the entire workflow run if skipped - this makes GitHub happy instead.
   # See:
