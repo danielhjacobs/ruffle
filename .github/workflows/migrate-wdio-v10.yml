@@ -1,0 +1,64 @@
+name: Migrate WebdriverIO v10
+
+on:
+  push:
+    branches:
+      - migrate-wdio-v10
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: migrate-wdio-v10
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Migrate dependencies and run codemod
+        working-directory: web
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          npm pkg set 'devDependencies.@wdio/browserstack-service=^10.0.0'
+          npm pkg set 'devDependencies.@wdio/cli=^10.0.0'
+          npm pkg set 'devDependencies.@wdio/local-runner=^10.0.0'
+          npm pkg set 'devDependencies.@wdio/mocha-framework=^10.0.0'
+          npm pkg set 'devDependencies.@wdio/spec-reporter=^10.0.0'
+          npm pkg set 'devDependencies.@wdio/static-server-service=^10.0.0'
+          npm pkg set 'devDependencies.webdriverio=^10.0.0'
+
+          npm install --no-save --package-lock=false jscodeshift @wdio/codemod
+          npx jscodeshift -t ./node_modules/@wdio/codemod/v10 ./packages/selfhosted/test --parser=tsx
+
+          npm install --package-lock-only
+
+      - name: Check WebdriverIO leftovers and type-check
+        working-directory: web
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ! grep -RInE 'jasmineNodeOpts|jasmineOpts\.stopSpecOnExpectationFailure|cucumberOpts\.tagExpression|mochaOpts\.compilers|switchToFrame\(|executeAsync|browser\.throttle\(|touchAction\(|uploadFile\(|isW3C|JSONWPCommandError|expect-webdriverio/types|setFeatureFlags\(' packages/selfhosted/test packages/selfhosted/wdio.conf.ts
+          npm run checkTypes --workspace=ruffle-selfhosted
+
+      - name: Commit migration and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/migrate-wdio-v10.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/package.json web/package-lock.json web/packages/selfhosted/test .github/workflows/migrate-wdio-v10.yml
+          git diff --cached --check
+          git diff --cached --quiet && exit 0 || true
+          git commit -m "web: Migrate WebdriverIO to v10"
+          git push origin migrate-wdio-v10
