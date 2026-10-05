@@ -28,7 +28,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          npm pkg set 'devDependencies.@wdio/browserstack-service=^10.0.0'
           npm pkg set 'devDependencies.@wdio/cli=^10.0.0'
           npm pkg set 'devDependencies.@wdio/local-runner=^10.0.0'
           npm pkg set 'devDependencies.@wdio/mocha-framework=^10.0.0'
