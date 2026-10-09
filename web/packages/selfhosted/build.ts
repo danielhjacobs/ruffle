@@ -110,7 +110,6 @@ const wasmUrlPlugin: esbuild.Plugin = {
                     "utf8",
                 );
 
-
                 const rewrite = (pattern: RegExp, hashedPath: string) => {
                     let count = 0;
                     contents = contents.replace(pattern, () => {
