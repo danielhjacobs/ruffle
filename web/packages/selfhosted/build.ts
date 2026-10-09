@@ -95,7 +95,6 @@ const wasmMvpPath: string | undefined = needsMvpWasm
 const isProduction: boolean = process.env["NODE_ENV"] !== "development";
 
 let rewroteWasmUrls = false;
-let rewroteLocalization = false;
 
 // This handles rewriting static original WASM URLs in load-ruffle.js
 // to their hashed counterparts.
@@ -111,39 +110,6 @@ const wasmUrlPlugin: esbuild.Plugin = {
                     "utf8",
                 );
 
-                // Keep all translations in ordinary core/extension builds, but strip
-                // non-English strings from this selfhosted bundle. The locale manifest
-                // remains small and lets the runtime fetch only preferred translations.
-                const bundledTextsMatch =
-                    /const BUNDLED_TEXTS = (\{[\s\S]*?\n\});/.exec(contents);
-                if (!bundledTextsMatch || !bundledTextsMatch[1]) {
-                    throw new Error(
-                        `Could not find BUNDLED_TEXTS in ${args.path}`,
-                    );
-                }
-                const bundledTexts = JSON.parse(bundledTextsMatch[1]) as Record<
-                    string,
-                    Record<string, string>
-                >;
-                if (!bundledTexts["en-US"]) {
-                    throw new Error(
-                        "English translations are missing from BUNDLED_TEXTS",
-                    );
-                }
-                contents = contents.replace(
-                    bundledTextsMatch[0],
-                    `const BUNDLED_TEXTS = ${JSON.stringify({ "en-US": bundledTexts["en-US"] })};`,
-                );
-                if (!contents.includes('"__RUFFLE_EXTERNAL_TEXTS_BASE__"')) {
-                    throw new Error(
-                        "External localization base URL marker was not found",
-                    );
-                }
-                contents = contents.replace(
-                    '"__RUFFLE_EXTERNAL_TEXTS_BASE__"',
-                    JSON.stringify(translationBaseUrl),
-                );
-                rewroteLocalization = true;
 
                 const rewrite = (pattern: RegExp, hashedPath: string) => {
                     let count = 0;
@@ -184,6 +150,66 @@ const wasmUrlPlugin: esbuild.Plugin = {
     },
 };
 
+let rewroteLocalization = false;
+
+// This transform applies only to the selfhosted bundle. Keep other core consumers,
+// including the browser extension, using their normal bundled translations.
+const selfhostedLocalizationPlugin: esbuild.Plugin = {
+    name: "selfhosted-localization",
+
+    setup(build: esbuild.PluginBuild) {
+        build.onLoad(
+            { filter: /(?:^|[/\\])internal[/\\]i18n\.js$/ },
+            async (args: esbuild.OnLoadArgs) => {
+                let contents: string = await fs.promises.readFile(
+                    args.path,
+                    "utf8",
+                );
+
+                const bundledTextsMatch =
+                    /const BUNDLED_TEXTS = (\{[\s\S]*?\n\});/.exec(contents);
+                if (!bundledTextsMatch || !bundledTextsMatch[1]) {
+                    throw new Error(
+                        `Could not find BUNDLED_TEXTS in ${args.path}`,
+                    );
+                }
+
+                const bundledTexts = JSON.parse(bundledTextsMatch[1]) as Record<
+                    string,
+                    Record<string, string>
+                >;
+                if (!bundledTexts["en-US"]) {
+                    throw new Error(
+                        "English translations are missing from BUNDLED_TEXTS",
+                    );
+                }
+
+                contents = contents.replace(
+                    bundledTextsMatch[0],
+                    `const BUNDLED_TEXTS = ${JSON.stringify({ "en-US": bundledTexts["en-US"] })};`,
+                );
+
+                if (!contents.includes('"__RUFFLE_EXTERNAL_TEXTS_BASE__"')) {
+                    throw new Error(
+                        "External localization base URL marker was not found",
+                    );
+                }
+                contents = contents.replace(
+                    '"__RUFFLE_EXTERNAL_TEXTS_BASE__"',
+                    JSON.stringify(translationBaseUrl),
+                );
+
+                rewroteLocalization = true;
+
+                return {
+                    contents,
+                    loader: "js",
+                };
+            },
+        );
+    },
+};
+
 await esbuild.build({
     entryPoints: [path.join(__dirname, "js/ruffle.ts")],
     bundle: true,
@@ -195,12 +221,12 @@ await esbuild.build({
     minify: isProduction,
     sourcemap: true,
     target: "es2021",
-    plugins: [wasmUrlPlugin],
+    plugins: [wasmUrlPlugin, selfhostedLocalizationPlugin],
 });
 
 if (!rewroteLocalization) {
     throw new Error(
-        "load-ruffle.js was never loaded through the localization transform",
+        "internal/i18n.js was never loaded through the selfhosted localization transform",
     );
 }
 
