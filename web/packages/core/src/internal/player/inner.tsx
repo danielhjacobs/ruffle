@@ -284,6 +284,7 @@ export class InnerPlayer {
 
         this.localize();
         window.addEventListener("languagechange", () => this.localize());
+        window.addEventListener("ruffle-localizationchange", () => this.localize());
 
         document.documentElement.addEventListener(
             "pointerdown",
