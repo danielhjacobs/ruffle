@@ -1,6 +1,7 @@
 import { FluentBundle, FluentResource } from "@fluent/bundle";
 import { negotiateLanguages } from "@fluent/langneg";
 import type { FluentVariable } from "@fluent/bundle";
+import { currentScriptURL } from "../current-script.js";
 
 interface FileBundle {
     [filename: string]: string;
@@ -12,9 +13,9 @@ interface LocaleBundle {
 
 // This is automatically populated by `tools/bundle_texts.ts` via a postbuild script
 const BUNDLED_TEXTS: LocaleBundle = {/* %BUNDLED_TEXTS% */};
-const EXTERNAL_TEXTS_BASE = "__RUFFLE_EXTERNAL_TEXTS_BASE__";
-const EXTERNAL_TEXTS_MANIFEST: Record<string, string[]> = {
-    /* %EXTERNAL_TEXTS_MANIFEST% */
+const LOCALE_TEXTS_BASE = "__RUFFLE_LOCALE_TEXTS_BASE__";
+const LOCALE_FILES: Record<string, string[]> = {
+    /* %LOCALE_FILES% */
 };
 
 const bundles: Record<string, FluentBundle> = {};
@@ -56,7 +57,7 @@ function loadLocale(locale: string): Promise<void> {
         return pending;
     }
 
-    const filenames = EXTERNAL_TEXTS_MANIFEST[locale];
+    const filenames = LOCALE_FILES[locale];
     if (!filenames) {
         return Promise.resolve();
     }
@@ -67,7 +68,10 @@ function loadLocale(locale: string): Promise<void> {
             filenames.map(async (filename) => {
                 try {
                     const response = await fetch(
-                        EXTERNAL_TEXTS_BASE + "/" + locale + "/" + filename,
+                        new URL(
+                            LOCALE_TEXTS_BASE + "/" + locale + "/" + filename,
+                            currentScriptURL ?? new URL(".", document.baseURI),
+                        ).href,
                     );
                     if (!response.ok) {
                         throw new Error("HTTP " + response.status);
@@ -120,20 +124,20 @@ function loadLocale(locale: string): Promise<void> {
  * Begins loading the preferred locales without blocking synchronous text lookups.
  */
 async function loadPreferredLocales(): Promise<void> {
-    if (EXTERNAL_TEXTS_BASE === "__RUFFLE_EXTERNAL_TEXTS_BASE__") {
+    if (LOCALE_TEXTS_BASE === "__RUFFLE_LOCALE_TEXTS_BASE__") {
         return;
     }
 
     const locales = negotiateLanguages(
         navigator.languages,
-        Object.keys(EXTERNAL_TEXTS_MANIFEST),
+        Object.keys(LOCALE_FILES),
         { defaultLocale: "en-US" },
     ).filter((locale) => locale !== "en-US");
 
     await Promise.all(locales.map(loadLocale));
 }
 
-if (EXTERNAL_TEXTS_BASE !== "__RUFFLE_EXTERNAL_TEXTS_BASE__") {
+if (LOCALE_TEXTS_BASE !== "__RUFFLE_LOCALE_TEXTS_BASE__") {
     window.addEventListener("languagechange", () => {
         void loadPreferredLocales();
     });
@@ -184,7 +188,7 @@ export function text(
     // A player may be created after Ruffle is imported and after the preferred
     // language changes without a languagechange event. Start missing fetches
     // here, but keep this lookup synchronous and use English until they finish.
-    if (EXTERNAL_TEXTS_BASE !== "__RUFFLE_EXTERNAL_TEXTS_BASE__") {
+    if (LOCALE_TEXTS_BASE !== "__RUFFLE_LOCALE_TEXTS_BASE__") {
         void loadPreferredLocales();
     }
 
