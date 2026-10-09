@@ -126,18 +126,37 @@ async function shadowTitle(player: WebdriverIO.Element, selector: string) {
  * @param localeChain Locales the texts are expected to come from, in priority order
  */
 async function expectTexts(player: WebdriverIO.Element, localeChain: string[]) {
-    expect(await shadowText(player, "#unmute-text")).to.equal(
-        expectedText(localeChain, "click-to-unmute"),
+    const expected = {
+        unmute: expectedText(localeChain, "click-to-unmute"),
+        save: expectedText(localeChain, "save-backup-all"),
+        volumeUnmute: expectedText(localeChain, "volume-controls-unmute"),
+        volumeMute: expectedText(localeChain, "volume-controls-mute"),
+    };
+
+    // Non-English bundles are fetched asynchronously in the selfhosted build.
+    // Wait for the UI to be re-localized instead of asserting on English fallback.
+    await browser.waitUntil(
+        async () =>
+            (await shadowText(player, "#unmute-text")) === expected.unmute &&
+            (await shadowText(player, "#save-manager .modal-button")) ===
+                expected.save &&
+            (await shadowTitle(player, "#volume-mute")) ===
+                expected.volumeUnmute &&
+            (await shadowTitle(player, "#volume-max")) === expected.volumeMute,
+        {
+            timeout: 10000,
+            timeoutMsg: "Translations were not loaded for " + localeChain,
+        },
     );
+
+    expect(await shadowText(player, "#unmute-text")).to.equal(expected.unmute);
     expect(await shadowText(player, "#save-manager .modal-button")).to.equal(
-        expectedText(localeChain, "save-backup-all"),
+        expected.save,
     );
     expect(await shadowTitle(player, "#volume-mute")).to.equal(
-        expectedText(localeChain, "volume-controls-unmute"),
+        expected.volumeUnmute,
     );
-    expect(await shadowTitle(player, "#volume-max")).to.equal(
-        expectedText(localeChain, "volume-controls-mute"),
-    );
+    expect(await shadowTitle(player, "#volume-max")).to.equal(expected.volumeMute);
 }
 
 describe("Localization", () => {
