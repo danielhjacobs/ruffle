@@ -9,8 +9,10 @@ import * as esbuild from "esbuild";
 const __dirname: string = fileURLToPath(new URL(".", import.meta.url));
 const distDir: string = path.join(__dirname, "dist");
 const coreDir: string = path.resolve(__dirname, "../core");
-const translationBaseUrl: string = (process.env["RUFFLE_TRANSLATION_BASE_URL"] ??
-    "https://cdn.jsdelivr.net/gh/ruffle-rs/ruffle@master/web/packages/core/texts").replace(/\/$/, "");
+const translationBaseUrl: string = (
+    process.env["RUFFLE_TRANSLATION_BASE_URL"] ??
+    "https://cdn.jsdelivr.net/gh/ruffle-rs/ruffle@master/web/packages/core/texts"
+).replace(/\/$/, "");
 
 // 1. Clean dist directory
 if (fs.existsSync(distDir)) {
@@ -112,20 +114,30 @@ const wasmUrlPlugin: esbuild.Plugin = {
                 // Keep all translations in ordinary core/extension builds, but strip
                 // non-English strings from this selfhosted bundle. The locale manifest
                 // remains small and lets the runtime fetch only preferred translations.
-                const bundledTextsMatch = /const BUNDLED_TEXTS = (\{[\s\S]*?\n\});/.exec(contents);
-                if (!bundledTextsMatch) {
-                    throw new Error(`Could not find BUNDLED_TEXTS in ${args.path}`);
+                const bundledTextsMatch =
+                    /const BUNDLED_TEXTS = (\{[\s\S]*?\n\});/.exec(contents);
+                if (!bundledTextsMatch || !bundledTextsMatch[1]) {
+                    throw new Error(
+                        `Could not find BUNDLED_TEXTS in ${args.path}`,
+                    );
                 }
-                const bundledTexts = JSON.parse(bundledTextsMatch[1]) as Record<string, Record<string, string>>;
+                const bundledTexts = JSON.parse(bundledTextsMatch[1]) as Record<
+                    string,
+                    Record<string, string>
+                >;
                 if (!bundledTexts["en-US"]) {
-                    throw new Error("English translations are missing from BUNDLED_TEXTS");
+                    throw new Error(
+                        "English translations are missing from BUNDLED_TEXTS",
+                    );
                 }
                 contents = contents.replace(
                     bundledTextsMatch[0],
                     `const BUNDLED_TEXTS = ${JSON.stringify({ "en-US": bundledTexts["en-US"] })};`,
                 );
                 if (!contents.includes('"__RUFFLE_EXTERNAL_TEXTS_BASE__"')) {
-                    throw new Error("External localization base URL marker was not found");
+                    throw new Error(
+                        "External localization base URL marker was not found",
+                    );
                 }
                 contents = contents.replace(
                     '"__RUFFLE_EXTERNAL_TEXTS_BASE__"',

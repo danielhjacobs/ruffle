@@ -37,7 +37,6 @@ for (const [locale, files] of Object.entries(BUNDLED_TEXTS)) {
     bundles[locale] = bundle;
 }
 
-
 let localeLoadGeneration = 0;
 
 /**
@@ -86,8 +85,10 @@ async function loadPreferredLocales(): Promise<void> {
 
             for (let i = 0; i < resources.length; i++) {
                 const source = resources[i];
-                if (source !== null) {
-                    for (const error of bundle.addResource(new FluentResource(source))) {
+                if (source !== null && source !== undefined) {
+                    for (const error of bundle.addResource(
+                        new FluentResource(source),
+                    )) {
                         console.error(
                             `Error in text for ${locale} ${filenames[i]}: ${error}`,
                         );
