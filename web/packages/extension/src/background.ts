@@ -35,6 +35,44 @@ async function getPluginPolyfillRegistration(
     };
 }
 
+/**
+ * Unregister only scripts that currently exist. This also removes the
+ * persistent all-pages Ruffle registration used by older extension versions.
+ */
+async function unregisterRegisteredScripts(ids: string[]): Promise<void> {
+    const scripts = await browser.scripting.getRegisteredContentScripts({ ids });
+    const registeredIds = scripts.map((script) => script.id);
+    if (registeredIds.length > 0) {
+        await browser.scripting.unregisterContentScripts({ ids: registeredIds });
+    }
+}
+
+async function injectRuffleRuntime(
+    sender: chrome.runtime.MessageSender,
+): Promise<boolean> {
+    const tabId = sender.tab?.id;
+    const frameId = sender.frameId;
+    if (
+        tabId === undefined ||
+        frameId === undefined ||
+        !browser.scripting?.executeScript
+    ) {
+        return false;
+    }
+
+    try {
+        await browser.scripting.executeScript({
+            target: { tabId, frameIds: [frameId] },
+            files: ["dist/ruffle.js"],
+            world: "MAIN",
+        });
+        return true;
+    } catch {
+        // content.ts falls back to a web-accessible script URL.
+        return false;
+    }
+}
+
 // Copied from https://github.com/w3c/webextensions/issues/638#issuecomment-2181124486
 async function isHeaderConditionSupported() {
     let needCleanup: boolean;
@@ -195,6 +233,12 @@ async function enable() {
     if (swfTakeover) {
         await enableSWFTakeover();
     }
+
+    if (browser.scripting) {
+        // Migrate away from previous versions' all-pages MAIN-world runtime.
+        await unregisterRegisteredScripts(["ruffle"]);
+    }
+
     if (
         !browser.scripting ||
         (browser.scripting.ExecutionWorld &&
@@ -206,28 +250,15 @@ async function enable() {
         ? "dist/pluginPolyfillIgnoreOptout.js"
         : "dist/pluginPolyfill.js";
 
-    const { registered, matches } =
+    const { matches } =
         await getPluginPolyfillRegistration(expectedScript);
     if (!matches) {
-        if (registered) {
-            await browser.scripting.unregisterContentScripts({
-                ids: ["ruffle", "plugin-polyfill", "4399"],
-            });
-        }
+        await unregisterRegisteredScripts(["plugin-polyfill", "4399"]);
+
         // Reuse the exclude_matches of dist/content.js in the manifest.
         const excludeMatches =
             browser.runtime.getManifest().content_scripts![0]!.exclude_matches!;
         await browser.scripting.registerContentScripts([
-            {
-                id: "ruffle",
-                js: ["dist/ruffle.js"],
-                persistAcrossSessions: true,
-                matches: ["<all_urls>"],
-                excludeMatches,
-                runAt: "document_start",
-                allFrames: true,
-                world: "MAIN",
-            },
             {
                 id: "plugin-polyfill",
                 js: [expectedScript],
@@ -255,18 +286,12 @@ async function enable() {
 }
 
 async function disable() {
-    if (
-        !browser.scripting ||
-        (browser.scripting.ExecutionWorld &&
-            !browser.scripting.ExecutionWorld.MAIN)
-    ) {
-        return;
-    }
-    const { registered } = await getPluginPolyfillRegistration();
-    if (registered) {
-        await browser.scripting.unregisterContentScripts({
-            ids: ["ruffle", "plugin-polyfill", "4399"],
-        });
+    if (browser.scripting) {
+        await unregisterRegisteredScripts([
+            "ruffle",
+            "plugin-polyfill",
+            "4399",
+        ]);
     }
     await disableSWFTakeover();
 }
@@ -285,12 +310,22 @@ async function onAdded(permissions: chrome.permissions.Permissions) {
 
 function onMessage(
     request: unknown,
-    _sender: chrome.runtime.MessageSender,
-    _sendResponse: (response: unknown) => void,
-): void {
+    sender: chrome.runtime.MessageSender,
+    sendResponse: (response: unknown) => void,
+): boolean | void {
+    if (
+        typeof request === "object" &&
+        request !== null &&
+        "type" in request &&
+        request.type === "inject_ruffle_runtime"
+    ) {
+        void injectRuffleRuntime(sender).then(sendResponse);
+        return true;
+    }
+
     if (isMessage(request)) {
         if (request.type === "open_url_in_player") {
-            browser.tabs.create({
+            void browser.tabs.create({
                 url: browser.runtime.getURL(`player.html#${request.url}`),
             });
         }
@@ -299,6 +334,9 @@ function onMessage(
 
 (async () => {
     enableBrowserOnOutdatedChromium();
+    if (browser.scripting) {
+        await unregisterRegisteredScripts(["ruffle"]);
+    }
     const { ruffleEnable } = await getOptions();
     if (ruffleEnable) {
         await enable();
