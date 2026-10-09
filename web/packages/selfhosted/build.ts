@@ -9,10 +9,6 @@ import * as esbuild from "esbuild";
 const __dirname: string = fileURLToPath(new URL(".", import.meta.url));
 const distDir: string = path.join(__dirname, "dist");
 const coreDir: string = path.resolve(__dirname, "../core");
-const translationBaseUrl: string = (
-    process.env["RUFFLE_TRANSLATION_BASE_URL"] ??
-    "https://cdn.jsdelivr.net/gh/ruffle-rs/ruffle@master/web/packages/core/texts"
-).replace(/\/$/, "");
 
 // 1. Clean dist directory
 if (fs.existsSync(distDir)) {
@@ -53,7 +49,33 @@ for (const file of rootFiles) {
     }
 }
 
-// 4. Hash and copy WASM binaries
+// 4. Copy translation resources next to ruffle.js so the selfhosted build
+// never needs to fetch localization from an external service.
+const sourceTextsDir: string = path.join(coreDir, "texts");
+const distTextsDir: string = path.join(distDir, "texts");
+
+for (const locale of fs.readdirSync(sourceTextsDir, { withFileTypes: true })) {
+    if (!locale.isDirectory()) {
+        continue;
+    }
+
+    const sourceLocaleDir = path.join(sourceTextsDir, locale.name);
+    const distLocaleDir = path.join(distTextsDir, locale.name);
+
+    for (const file of fs.readdirSync(sourceLocaleDir, { withFileTypes: true })) {
+        if (!file.isFile() || !file.name.endsWith(".ftl")) {
+            continue;
+        }
+
+        fs.mkdirSync(distLocaleDir, { recursive: true });
+        fs.copyFileSync(
+            path.join(sourceLocaleDir, file.name),
+            path.join(distLocaleDir, file.name),
+        );
+    }
+}
+
+// 5. Hash and copy WASM binaries
 function copyAndHashWasm(filename: string): string {
     const sourcePath: string = path.join(coreDir, "dist", filename);
 
@@ -91,7 +113,7 @@ const wasmMvpPath: string | undefined = needsMvpWasm
     ? copyAndHashWasm("ruffle_web-wasm_mvp_bg.wasm")
     : undefined;
 
-// 5. Bundle with esbuild
+// 6. Bundle with esbuild
 const isProduction: boolean = process.env["NODE_ENV"] !== "development";
 
 let rewroteWasmUrls = false;
@@ -188,14 +210,14 @@ const selfhostedLocalizationPlugin: esbuild.Plugin = {
                     `const BUNDLED_TEXTS = ${JSON.stringify({ "en-US": bundledTexts["en-US"] })};`,
                 );
 
-                if (!contents.includes('"__RUFFLE_EXTERNAL_TEXTS_BASE__"')) {
+                if (!contents.includes('"__RUFFLE_LOCALE_TEXTS_BASE__"')) {
                     throw new Error(
-                        "External localization base URL marker was not found",
+                        "Local localization path marker was not found",
                     );
                 }
                 contents = contents.replace(
-                    '"__RUFFLE_EXTERNAL_TEXTS_BASE__"',
-                    JSON.stringify(translationBaseUrl),
+                    '"__RUFFLE_LOCALE_TEXTS_BASE__"',
+                    JSON.stringify("texts"),
                 );
 
                 rewroteLocalization = true;
