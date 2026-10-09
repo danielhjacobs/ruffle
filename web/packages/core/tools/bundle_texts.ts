@@ -3,6 +3,7 @@ import fs from "fs";
 
 const bundledTexts: { [name: string]: { [key: string]: string } } = {};
 const locales: string[] = [];
+const externalTextsManifest: Record<string, string[]> = {};
 
 fs.readdirSync("texts", { withFileTypes: true }).forEach((entry) => {
     if (entry.isDirectory()) {
@@ -25,6 +26,7 @@ locales.forEach((locale) => {
     );
     files.sort();
     if (files.length > 0) {
+        externalTextsManifest[locale] = files;
         bundledTexts[locale] = {};
         files.forEach((filename) => {
             bundledTexts[locale]![filename] = fs
@@ -36,8 +38,8 @@ locales.forEach((locale) => {
 
 const options = {
     files: "dist/**",
-    from: [/\{\s*\/\*\s*%BUNDLED_TEXTS%\s*\*\/\s*}/g],
-    to: [JSON.stringify(bundledTexts, null, 2)],
+    from: [/\{\s*\/\*\s*%BUNDLED_TEXTS%\s*\*\/\s*}/g, /\{\s*\/\*\s*%EXTERNAL_TEXTS_MANIFEST%\s*\*\/\s*}/g],
+    to: [JSON.stringify(bundledTexts, null, 2), JSON.stringify(externalTextsManifest, null, 2)],
 };
 
 replaceInFileSync(options);
