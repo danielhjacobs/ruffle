@@ -38,8 +38,14 @@ locales.forEach((locale) => {
 
 const options = {
     files: "dist/**",
-    from: [/\{\s*\/\*\s*%BUNDLED_TEXTS%\s*\*\/\s*}/g, /\{\s*\/\*\s*%EXTERNAL_TEXTS_MANIFEST%\s*\*\/\s*}/g],
-    to: [JSON.stringify(bundledTexts, null, 2), JSON.stringify(externalTextsManifest, null, 2)],
+    from: [
+        /\{\s*\/\*\s*%BUNDLED_TEXTS%\s*\*\/\s*}/g,
+        /\{\s*\/\*\s*%EXTERNAL_TEXTS_MANIFEST%\s*\*\/\s*}/g,
+    ],
+    to: [
+        JSON.stringify(bundledTexts, null, 2),
+        JSON.stringify(externalTextsManifest, null, 2),
+    ],
 };
 
 replaceInFileSync(options);
