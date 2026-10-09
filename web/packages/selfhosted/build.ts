@@ -10,7 +10,7 @@ const __dirname: string = fileURLToPath(new URL(".", import.meta.url));
 const distDir: string = path.join(__dirname, "dist");
 const coreDir: string = path.resolve(__dirname, "../core");
 const translationBaseUrl: string = (process.env["RUFFLE_TRANSLATION_BASE_URL"] ??
-    "https://cdn.jsdelivr.net/gh/ruffle-rs/ruffle@master/web/packages/core/texts").replace(/\\/$/, "");
+    "https://cdn.jsdelivr.net/gh/ruffle-rs/ruffle@master/web/packages/core/texts").replace(/\/$/, "");
 
 // 1. Clean dist directory
 if (fs.existsSync(distDir)) {
