@@ -37,72 +37,86 @@ for (const [locale, files] of Object.entries(BUNDLED_TEXTS)) {
     bundles[locale] = bundle;
 }
 
-let localeLoadGeneration = 0;
+const localeLoads = new Map<string, Promise<void>>();
 
 /**
- * Loads the preferred locales when this build has been configured to fetch
- * translations externally. Other builds keep using their bundled translations.
+ * Loads a locale's Fluent resources once, sharing in-flight requests.
+ */
+function loadLocale(locale: string): Promise<void> {
+    if (bundles[locale] !== undefined) {
+        return Promise.resolve();
+    }
+
+    const pending = localeLoads.get(locale);
+    if (pending !== undefined) {
+        return pending;
+    }
+
+    const filenames = EXTERNAL_TEXTS_MANIFEST[locale];
+    if (!filenames) {
+        return Promise.resolve();
+    }
+
+    const load = (async () => {
+        const bundle = new FluentBundle(locale);
+        const resources = await Promise.all(
+            filenames.map(async (filename) => {
+                try {
+                    const response = await fetch(
+                        EXTERNAL_TEXTS_BASE + "/" + locale + "/" + filename,
+                    );
+                    if (!response.ok) {
+                        throw new Error("HTTP " + response.status);
+                    }
+                    return await response.text();
+                } catch (error) {
+                    console.warn(
+                        "Unable to load Ruffle translations for " + locale + "/" + filename,
+                        error,
+                    );
+                    return null;
+                }
+            }),
+        );
+
+        for (let i = 0; i < resources.length; i++) {
+            const source = resources[i];
+            if (source !== null && source !== undefined) {
+                for (const error of bundle.addResource(new FluentResource(source))) {
+                    console.error(
+                        "Error in text for " + locale + " " + filenames[i] + ": " + error,
+                    );
+                }
+            }
+        }
+
+        // Store even a partially loaded bundle: missing messages fall back to
+        // English, and failed files should not cause a request on every lookup.
+        bundles[locale] = bundle;
+        window.dispatchEvent(new Event("ruffle-localizationchange"));
+    })().finally(() => {
+        localeLoads.delete(locale);
+    });
+
+    localeLoads.set(locale, load);
+    return load;
+}
+
+/**
+ * Begins loading the preferred locales without blocking synchronous text lookups.
  */
 async function loadPreferredLocales(): Promise<void> {
     if (EXTERNAL_TEXTS_BASE === "__RUFFLE_EXTERNAL_TEXTS_BASE__") {
         return;
     }
 
-    const generation = ++localeLoadGeneration;
     const locales = negotiateLanguages(
         navigator.languages,
         Object.keys(EXTERNAL_TEXTS_MANIFEST),
         { defaultLocale: "en-US" },
-    ).filter((locale) => locale !== "en-US" && bundles[locale] === undefined);
+    ).filter((locale) => locale !== "en-US");
 
-    await Promise.all(
-        locales.map(async (locale) => {
-            const filenames = EXTERNAL_TEXTS_MANIFEST[locale];
-            if (!filenames) {
-                return;
-            }
-
-            const bundle = new FluentBundle(locale);
-            const resources = await Promise.all(
-                filenames.map(async (filename) => {
-                    try {
-                        const response = await fetch(
-                            `${EXTERNAL_TEXTS_BASE}/${locale}/${filename}`,
-                        );
-                        if (!response.ok) {
-                            throw new Error(`HTTP ${response.status}`);
-                        }
-                        return await response.text();
-                    } catch (error) {
-                        console.warn(
-                            `Unable to load Ruffle translations for ${locale}/${filename}`,
-                            error,
-                        );
-                        return null;
-                    }
-                }),
-            );
-
-            for (let i = 0; i < resources.length; i++) {
-                const source = resources[i];
-                if (source !== null && source !== undefined) {
-                    for (const error of bundle.addResource(
-                        new FluentResource(source),
-                    )) {
-                        console.error(
-                            `Error in text for ${locale} ${filenames[i]}: ${error}`,
-                        );
-                    }
-                }
-            }
-
-            bundles[locale] = bundle;
-        }),
-    );
-
-    if (generation === localeLoadGeneration) {
-        window.dispatchEvent(new Event("ruffle-localizationchange"));
-    }
+    await Promise.all(locales.map(loadLocale));
 }
 
 if (EXTERNAL_TEXTS_BASE !== "__RUFFLE_EXTERNAL_TEXTS_BASE__") {
@@ -153,6 +167,13 @@ export function text(
     id: string,
     args?: Record<string, FluentVariable> | null,
 ): string {
+    // A player may be created after Ruffle is imported and after the preferred
+    // language changes without a languagechange event. Start missing fetches
+    // here, but keep this lookup synchronous and use English until they finish.
+    if (EXTERNAL_TEXTS_BASE !== "__RUFFLE_EXTERNAL_TEXTS_BASE__") {
+        void loadPreferredLocales();
+    }
+
     const locales = negotiateLanguages(
         navigator.languages,
         Object.keys(bundles),
