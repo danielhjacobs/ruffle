@@ -156,7 +156,9 @@ async function expectTexts(player: WebdriverIO.Element, localeChain: string[]) {
     expect(await shadowTitle(player, "#volume-mute")).to.equal(
         expected.volumeUnmute,
     );
-    expect(await shadowTitle(player, "#volume-max")).to.equal(expected.volumeMute);
+    expect(await shadowTitle(player, "#volume-max")).to.equal(
+        expected.volumeMute,
+    );
 }
 
 describe("Localization", () => {

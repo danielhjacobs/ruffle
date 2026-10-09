@@ -40,7 +40,11 @@ for (const [locale, files] of Object.entries(BUNDLED_TEXTS)) {
 const localeLoads = new Map<string, Promise<void>>();
 
 /**
+ *
+ * @returns An empty promise
  * Loads a locale's Fluent resources once, sharing in-flight requests.
+ *
+ * @param locale The locale to load
  */
 function loadLocale(locale: string): Promise<void> {
     if (bundles[locale] !== undefined) {
@@ -71,7 +75,10 @@ function loadLocale(locale: string): Promise<void> {
                     return await response.text();
                 } catch (error) {
                     console.warn(
-                        "Unable to load Ruffle translations for " + locale + "/" + filename,
+                        "Unable to load Ruffle translations for " +
+                            locale +
+                            "/" +
+                            filename,
                         error,
                     );
                     return null;
@@ -82,9 +89,16 @@ function loadLocale(locale: string): Promise<void> {
         for (let i = 0; i < resources.length; i++) {
             const source = resources[i];
             if (source !== null && source !== undefined) {
-                for (const error of bundle.addResource(new FluentResource(source))) {
+                for (const error of bundle.addResource(
+                    new FluentResource(source),
+                )) {
                     console.error(
-                        "Error in text for " + locale + " " + filenames[i] + ": " + error,
+                        "Error in text for " +
+                            locale +
+                            " " +
+                            filenames[i] +
+                            ": " +
+                            error,
                     );
                 }
             }
