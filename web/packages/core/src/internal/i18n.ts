@@ -12,6 +12,10 @@ interface LocaleBundle {
 
 // This is automatically populated by `tools/bundle_texts.ts` via a postbuild script
 const BUNDLED_TEXTS: LocaleBundle = {/* %BUNDLED_TEXTS% */};
+const EXTERNAL_TEXTS_BASE = "__RUFFLE_EXTERNAL_TEXTS_BASE__";
+const EXTERNAL_TEXTS_MANIFEST: Record<string, string[]> = {
+    /* %EXTERNAL_TEXTS_MANIFEST% */
+};
 
 const bundles: Record<string, FluentBundle> = {};
 
@@ -31,6 +35,80 @@ for (const [locale, files] of Object.entries(BUNDLED_TEXTS)) {
         }
     }
     bundles[locale] = bundle;
+}
+
+
+let localeLoadGeneration = 0;
+
+/**
+ * Loads the preferred locales when this build has been configured to fetch
+ * translations externally. Other builds keep using their bundled translations.
+ */
+async function loadPreferredLocales(): Promise<void> {
+    if (EXTERNAL_TEXTS_BASE === "__RUFFLE_EXTERNAL_TEXTS_BASE__") {
+        return;
+    }
+
+    const generation = ++localeLoadGeneration;
+    const locales = negotiateLanguages(
+        navigator.languages,
+        Object.keys(EXTERNAL_TEXTS_MANIFEST),
+        { defaultLocale: "en-US" },
+    ).filter((locale) => locale !== "en-US" && bundles[locale] === undefined);
+
+    await Promise.all(
+        locales.map(async (locale) => {
+            const filenames = EXTERNAL_TEXTS_MANIFEST[locale];
+            if (!filenames) {
+                return;
+            }
+
+            const bundle = new FluentBundle(locale);
+            const resources = await Promise.all(
+                filenames.map(async (filename) => {
+                    try {
+                        const response = await fetch(
+                            `${EXTERNAL_TEXTS_BASE}/${locale}/${filename}`,
+                        );
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}`);
+                        }
+                        return await response.text();
+                    } catch (error) {
+                        console.warn(
+                            `Unable to load Ruffle translations for ${locale}/${filename}`,
+                            error,
+                        );
+                        return null;
+                    }
+                }),
+            );
+
+            for (let i = 0; i < resources.length; i++) {
+                const source = resources[i];
+                if (source !== null) {
+                    for (const error of bundle.addResource(new FluentResource(source))) {
+                        console.error(
+                            `Error in text for ${locale} ${filenames[i]}: ${error}`,
+                        );
+                    }
+                }
+            }
+
+            bundles[locale] = bundle;
+        }),
+    );
+
+    if (generation === localeLoadGeneration) {
+        window.dispatchEvent(new Event("ruffle-localizationchange"));
+    }
+}
+
+if (EXTERNAL_TEXTS_BASE !== "__RUFFLE_EXTERNAL_TEXTS_BASE__") {
+    window.addEventListener("languagechange", () => {
+        void loadPreferredLocales();
+    });
+    void loadPreferredLocales();
 }
 
 /**
