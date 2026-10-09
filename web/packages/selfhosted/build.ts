@@ -112,7 +112,7 @@ const wasmUrlPlugin: esbuild.Plugin = {
                 // Keep all translations in ordinary core/extension builds, but strip
                 // non-English strings from this selfhosted bundle. The locale manifest
                 // remains small and lets the runtime fetch only preferred translations.
-                const bundledTextsMatch = /const BUNDLED_TEXTS = (\\{[\\s\\S]*?\\n\\});/.exec(contents);
+                const bundledTextsMatch = /const BUNDLED_TEXTS = (\{[\s\S]*?\n\});/.exec(contents);
                 if (!bundledTextsMatch) {
                     throw new Error(`Could not find BUNDLED_TEXTS in ${args.path}`);
                 }
