@@ -20,6 +20,8 @@ Before you can get started with using Ruffle on your website, you must host its 
 Either take the [latest build](https://github.com/ruffle-rs/ruffle/releases)
 or [build it yourself](https://github.com/ruffle-rs/ruffle/blob/master/web/README.md), and make these files accessible by your web server.
 
+Please note that the generated `texts/` directory contains Ruffle's locale resources. Keep it alongside `ruffle.js` when deploying the selfhosted build; English is available directly from `ruffle.js`, while other languages are loaded asynchronously from these local files.
+
 Please note that the `.wasm` file must be served properly, and some web servers may not do that
 correctly out of the box. Please see [our wiki](https://github.com/ruffle-rs/ruffle/wiki/Using-Ruffle#configure-wasm-mime-type)
 for instructions on how to configure this, if you encounter a `Incorrect response MIME type` error.
