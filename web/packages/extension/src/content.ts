@@ -129,7 +129,7 @@ function isFlashReference(src: string | null, type: string | null): boolean {
 
     let isSwfPath = false;
     try {
-        isSwfPath = /\\.(?:swf|spl)$/i.test(
+        isSwfPath = /\.(?:swf|spl)$/i.test(
             new URL(src, document.baseURI).pathname,
         );
     } catch {
@@ -144,7 +144,7 @@ function isFlashReference(src: string | null, type: string | null): boolean {
 
 function isFlashCandidate(element: Element): boolean {
     const name = element.localName.toLowerCase();
-    if (/^ruffle-(?:player|embed|object)(?:-\\d+)?$/.test(name)) {
+    if (/^ruffle-(?:player|embed|object)(?:-\d+)?$/.test(name)) {
         return true;
     }
     if (name !== "embed" && name !== "object") {
