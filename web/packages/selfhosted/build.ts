@@ -62,7 +62,9 @@ for (const locale of fs.readdirSync(sourceTextsDir, { withFileTypes: true })) {
     const sourceLocaleDir = path.join(sourceTextsDir, locale.name);
     const distLocaleDir = path.join(distTextsDir, locale.name);
 
-    for (const file of fs.readdirSync(sourceLocaleDir, { withFileTypes: true })) {
+    for (const file of fs.readdirSync(sourceLocaleDir, {
+        withFileTypes: true,
+    })) {
         if (!file.isFile() || !file.name.endsWith(".ftl")) {
             continue;
         }

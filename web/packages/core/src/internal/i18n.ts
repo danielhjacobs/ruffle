@@ -14,9 +14,7 @@ interface LocaleBundle {
 // This is automatically populated by `tools/bundle_texts.ts` via a postbuild script
 const BUNDLED_TEXTS: LocaleBundle = {/* %BUNDLED_TEXTS% */};
 const LOCALE_TEXTS_BASE = "__RUFFLE_LOCALE_TEXTS_BASE__";
-const LOCALE_FILES: Record<string, string[]> = {
-    /* %LOCALE_FILES% */
-};
+const LOCALE_FILES: Record<string, string[]> = {/* %LOCALE_FILES% */};
 
 const bundles: Record<string, FluentBundle> = {};
 
