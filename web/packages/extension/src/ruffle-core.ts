@@ -1,5 +1,6 @@
 import { Setup, setCurrentScriptURL } from "ruffle-core";
-import { internalSourceApi } from "ruffle-core/dist/internal/internal-source-api.js";
+import { registerElement } from "ruffle-core/dist/internal/register-element.js";
+import { RufflePlayerElement } from "ruffle-core/dist/internal/player/ruffle-player-element.js";
 import { Message } from "./messages";
 
 /**
@@ -38,7 +39,7 @@ function handleMessage(message: Message) {
             Setup.installRuffle("extension");
             // Register the element class so early placeholders created by the
             // MAIN-world facade are upgraded in place.
-            internalSourceApi.createPlayer();
+            registerElement("ruffle-player", RufflePlayerElement);
             const currentPublicAPI = window.RufflePlayer;
             const config = currentPublicAPI?.config;
             if (
