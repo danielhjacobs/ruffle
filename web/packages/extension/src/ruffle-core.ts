@@ -38,6 +38,19 @@ function handleMessage(message: Message) {
             // Register the element class so early placeholders created by the
             // MAIN-world facade are upgraded in place.
             window.RufflePlayer?.sources?.["extension"]?.createPlayer();
+            const currentPublicAPI = window.RufflePlayer;
+            const config = currentPublicAPI?.config;
+            if (
+                currentPublicAPI?.invoked &&
+                !(
+                    config &&
+                    typeof config === "object" &&
+                    "polyfills" in config &&
+                    (config as { polyfills?: unknown }).polyfills === false
+                )
+            ) {
+                currentPublicAPI.sources?.["extension"]?.polyfill();
+            }
             return {};
         }
         case "ping":

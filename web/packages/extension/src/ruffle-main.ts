@@ -20,6 +20,8 @@ type PlayerState = {
     onFSCommandWasSet: boolean;
     traceObserver: ((message: string) => void) | null;
     traceObserverWasSet: boolean;
+    volume: number;
+    volumeWasSet: boolean;
 };
 const pending = new Map<number, { resolve(reply: Reply): void; reject(error: Error): void }>();
 const states = new WeakMap<HTMLElement, PlayerState>();
@@ -87,6 +89,7 @@ function applyPlayerState(state: PlayerState): void {
     if (state.configWasSet) descriptor(state.element, "config")?.set?.call(state.element, state.config);
     if (state.onFSCommandWasSet) descriptor(state.element, "onFSCommand")?.set?.call(state.element, state.onFSCommand);
     if (state.traceObserverWasSet) descriptor(state.element, "traceObserver")?.set?.call(state.element, state.traceObserver);
+    if (state.volumeWasSet) descriptor(state.element, "volume")?.set?.call(state.element, state.volume);
 }
 async function invoke(state: PlayerState, method: string, args: unknown[] = []): Promise<unknown> {
     const result = await ensureCore(true);
@@ -131,14 +134,20 @@ function decoratePlayer(element: HTMLElement): PlayerState {
         element, id, config: {}, configWasSet: false,
         onFSCommand: null, onFSCommandWasSet: false,
         traceObserver: null, traceObserverWasSet: false,
+        volume: 1, volumeWasSet: false,
     };
     states.set(element, state);
 
     const method = (name: string) => (...args: unknown[]) => invoke(state, name, args);
     const load = (options: string | Record<string, unknown>) => invoke(state, "load", [options]);
     const reload = () => invoke(state, "reload");
-    const callExternalInterface = (name: string, ...args: unknown[]) =>
-        invoke(state, "callExternalInterface", [name, ...args]);
+    const callExternalInterface = (name: string, ...args: unknown[]): unknown => {
+        const desc = descriptor(state.element, "callExternalInterface");
+        if (hasCore(state.element) && typeof desc?.value === "function") {
+            return desc.value.call(state.element, name, ...args);
+        }
+        return invoke(state, "callExternalInterface", [name, ...args]);
+    };
 
     const versionedAPI = (): object => new Proxy({}, {
         get(_target, key) {
@@ -176,6 +185,13 @@ function decoratePlayer(element: HTMLElement): PlayerState {
             return undefined;
         },
         set(_target, key, value) {
+            if (key === "volume") {
+                setCoreValue(state, "volume", value, () => {
+                    state.volume = Number(value);
+                    state.volumeWasSet = true;
+                });
+                return true;
+            }
             if (key === "config") {
                 setCoreValue(state, "config", value, () => {
                     state.config = value as Record<string, unknown>;
@@ -222,7 +238,14 @@ function decoratePlayer(element: HTMLElement): PlayerState {
                 state.traceObserverWasSet = true;
             }),
         },
-        volume: { configurable: true, get: () => getCoreValue(state, "volume", () => 1), set: (value: number) => setCoreValue(state, "volume", value, () => {}) },
+        volume: {
+            configurable: true,
+            get: () => getCoreValue(state, "volume", () => state.volume),
+            set: (value: number) => setCoreValue(state, "volume", value, () => {
+                state.volume = Number(value);
+                state.volumeWasSet = true;
+            }),
+        },
         isPlaying: { configurable: true, get: () => getCoreValue(state, "isPlaying", () => false) },
         fullscreenEnabled: { configurable: true, get: () => getCoreValue(state, "fullscreenEnabled", () => false) },
         isFullscreen: { configurable: true, get: () => getCoreValue(state, "isFullscreen", () => document.fullscreenElement === element) },
@@ -319,10 +342,8 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
             pending.delete(message["requestId"]);
             request.resolve(message as unknown as Reply);
         }
-        if (message["success"] === true && message["skipped"] !== true) {
-            coreReady = true;
-            for (const state of states.values()) applyPlayerState(state);
-        }
+        // The core handshake below, not a generic successful bridge command,
+        // marks coreReady. A skipped polyfill or URL-opening command isn't core init.
         return;
     }
     if (message["to"] === "ruffle_content" && message["index"] === -1 &&
@@ -342,4 +363,14 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
     }
 });
 
-installPublicAPI();
+const ignorePageOptout = Boolean(
+    (window as Window & { __ruffleExtensionIgnoreOptout?: boolean }).__ruffleExtensionIgnoreOptout,
+);
+delete (window as Window & { __ruffleExtensionIgnoreOptout?: boolean }).__ruffleExtensionIgnoreOptout;
+
+if (
+    document.createElement("foo").tagName === "FOO" &&
+    (!document.documentElement.hasAttribute("data-ruffle-optout") || ignorePageOptout)
+) {
+    installPublicAPI();
+}

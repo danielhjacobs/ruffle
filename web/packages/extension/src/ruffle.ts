@@ -24,6 +24,10 @@ const FLASH_MIME_TYPES = new Set([
 ]);
 const GENERIC_MIME_TYPES = new Set(["application/octet-stream", "binary/octet-stream"]);
 let loadEnvelope: LoadEnvelope | null = null;
+let resolveLoadEnvelope: ((envelope: LoadEnvelope) => void) | null = null;
+const loadEnvelopeReady = new Promise<LoadEnvelope>((resolve) => {
+    resolveLoadEnvelope = resolve;
+});
 let coreLoading: Promise<boolean> | null = null;
 let coreLoaded = false;
 let observer: MutationObserver | null = null;
@@ -35,7 +39,7 @@ function isFlashReference(src: string | null, type: string | null): boolean {
     let swf = false;
     try { swf = /\.(?:swf|spl)$/i.test(new URL(src, document.baseURI).pathname); } catch { /* invalid URL */ }
     if (!mime) return swf;
-    return swf && GENERIC_BINARY_MIME_TYPES.has(mime);
+    return swf && GENERIC_MIME_TYPES.has(mime);
 }
 function isFlashElement(element: Element): boolean {
     const tag = element.localName.toLowerCase();
@@ -96,6 +100,9 @@ function waitForCoreAck(): Promise<void> {
     });
 }
 async function ensureCore(force: boolean, config?: Record<string, unknown>): Promise<{ success: boolean; skipped?: boolean; error?: string }> {
+    if (!loadEnvelope) {
+        loadEnvelope = await loadEnvelopeReady;
+    }
     if (config && loadEnvelope) {
         loadEnvelope = { ...loadEnvelope, data: { ...loadEnvelope.data, config: { ...loadEnvelope.data.config, ...config } } };
     }
@@ -162,6 +169,8 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
                 publicPath: String((message["data"] as Record<string, unknown>)["publicPath"] ?? browser.runtime.getURL("/dist/")),
             },
         };
+        resolveLoadEnvelope?.(loadEnvelope);
+        resolveLoadEnvelope = null;
         observeDocument();
         return;
     }
