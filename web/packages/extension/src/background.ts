@@ -13,26 +13,40 @@ import { isMessage } from "./messages";
 async function getPluginPolyfillRegistration(
     expectedScript?: string,
 ): Promise<{ registered: boolean; matches: boolean }> {
-    const matchingScripts = await browser.scripting.getRegisteredContentScripts(
-        {
-            ids: ["plugin-polyfill"],
-        },
-    );
-
-    if (matchingScripts?.length === 0) {
-        return {
-            registered: false,
-            matches: false,
-        };
-    }
-
-    // Content script IDs are unique, so there is at most one matching script.
+    const matchingScripts = await browser.scripting.getRegisteredContentScripts({
+        ids: ["ruffle-main"],
+    });
+    if (matchingScripts.length === 0) return { registered: false, matches: false };
     const script = matchingScripts[0];
-
     return {
         registered: true,
-        matches: script?.js?.[0] === expectedScript,
+        matches: script?.js?.[0] === expectedScript && script?.js?.[1] === "dist/ruffleMain.js",
     };
+}
+
+/**
+ * Remove obsolete persistent registrations left by earlier extension builds.
+ */
+async function unregisterRegisteredScripts(ids: string[]): Promise<void> {
+    const scripts = await browser.scripting.getRegisteredContentScripts({ ids });
+    const registeredIds = scripts.map((script) => script.id);
+    if (registeredIds.length > 0) await browser.scripting.unregisterContentScripts({ ids: registeredIds });
+}
+
+async function injectRuffleCore(sender: chrome.runtime.MessageSender): Promise<boolean> {
+    const tabId = sender.tab?.id;
+    const frameId = sender.frameId;
+    if (tabId === undefined || frameId === undefined || !browser.scripting?.executeScript) return false;
+    try {
+        await browser.scripting.executeScript({
+            target: { tabId, frameIds: [frameId] },
+            files: ["dist/ruffleCore.js"],
+            world: "MAIN",
+        });
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 // Copied from https://github.com/w3c/webextensions/issues/638#issuecomment-2181124486
@@ -192,45 +206,24 @@ async function disableSWFTakeover() {
 
 async function enable() {
     const { swfTakeover, ignoreOptout } = await getOptions();
-    if (swfTakeover) {
-        await enableSWFTakeover();
-    }
-    if (
-        !browser.scripting ||
-        (browser.scripting.ExecutionWorld &&
-            !browser.scripting.ExecutionWorld.MAIN)
-    ) {
-        return;
-    }
+    if (swfTakeover) await enableSWFTakeover();
+    if (!browser.scripting) return;
+
+    // Migrate away from the former full-runtime registration on every URL.
+    await unregisterRegisteredScripts(["ruffle", "plugin-polyfill"]);
+    if (browser.scripting.ExecutionWorld && !browser.scripting.ExecutionWorld.MAIN) return;
+
     const expectedScript = ignoreOptout
         ? "dist/pluginPolyfillIgnoreOptout.js"
         : "dist/pluginPolyfill.js";
-
-    const { registered, matches } =
-        await getPluginPolyfillRegistration(expectedScript);
+    const { matches } = await getPluginPolyfillRegistration(expectedScript);
     if (!matches) {
-        if (registered) {
-            await browser.scripting.unregisterContentScripts({
-                ids: ["ruffle", "plugin-polyfill", "4399"],
-            });
-        }
-        // Reuse the exclude_matches of dist/content.js in the manifest.
-        const excludeMatches =
-            browser.runtime.getManifest().content_scripts![0]!.exclude_matches!;
+        await unregisterRegisteredScripts(["ruffle-main", "4399"]);
+        const excludeMatches = browser.runtime.getManifest().content_scripts![0]!.exclude_matches!;
         await browser.scripting.registerContentScripts([
             {
-                id: "ruffle",
-                js: ["dist/ruffle.js"],
-                persistAcrossSessions: true,
-                matches: ["<all_urls>"],
-                excludeMatches,
-                runAt: "document_start",
-                allFrames: true,
-                world: "MAIN",
-            },
-            {
-                id: "plugin-polyfill",
-                js: [expectedScript],
+                id: "ruffle-main",
+                js: [expectedScript, "dist/ruffleMain.js"],
                 persistAcrossSessions: true,
                 matches: ["<all_urls>"],
                 excludeMatches,
@@ -255,18 +248,8 @@ async function enable() {
 }
 
 async function disable() {
-    if (
-        !browser.scripting ||
-        (browser.scripting.ExecutionWorld &&
-            !browser.scripting.ExecutionWorld.MAIN)
-    ) {
-        return;
-    }
-    const { registered } = await getPluginPolyfillRegistration();
-    if (registered) {
-        await browser.scripting.unregisterContentScripts({
-            ids: ["ruffle", "plugin-polyfill", "4399"],
-        });
+    if (browser.scripting) {
+        await unregisterRegisteredScripts(["ruffle", "plugin-polyfill", "ruffle-main", "4399"]);
     }
     await disableSWFTakeover();
 }
@@ -285,12 +268,21 @@ async function onAdded(permissions: chrome.permissions.Permissions) {
 
 function onMessage(
     request: unknown,
-    _sender: chrome.runtime.MessageSender,
-    _sendResponse: (response: unknown) => void,
-): void {
+    sender: chrome.runtime.MessageSender,
+    sendResponse: (response: unknown) => void,
+): boolean | void {
+    if (
+        typeof request === "object" &&
+        request !== null &&
+        "type" in request &&
+        request.type === "inject_ruffle_core"
+    ) {
+        void injectRuffleCore(sender).then(sendResponse, () => sendResponse(false));
+        return true;
+    }
     if (isMessage(request)) {
         if (request.type === "open_url_in_player") {
-            browser.tabs.create({
+            void browser.tabs.create({
                 url: browser.runtime.getURL(`player.html#${request.url}`),
             });
         }
@@ -302,6 +294,8 @@ function onMessage(
     const { ruffleEnable } = await getOptions();
     if (ruffleEnable) {
         await enable();
+    } else if (browser.scripting) {
+        await unregisterRegisteredScripts(["ruffle", "plugin-polyfill", "ruffle-main", "4399"]);
     }
 })();
 

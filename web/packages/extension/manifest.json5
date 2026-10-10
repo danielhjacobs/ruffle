@@ -47,7 +47,7 @@
                 "https://*.costco.is/*", // See https://github.com/ruffle-rs/ruffle/issues/23440
                 "https://*.costco.com.cn/*", // See https://github.com/ruffle-rs/ruffle/issues/23440
             ],
-            "js": ["dist/content.js"],
+            "js": ["dist/content.js", "dist/ruffle.js"],
             "all_frames": true,
             "run_at": "document_start",
         },

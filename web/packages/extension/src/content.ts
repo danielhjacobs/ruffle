@@ -163,7 +163,7 @@ function isXMLDocument(): boolean {
             ?.filename !== "ruffle.js"
     ) {
         injectScriptRaw("%PLUGIN_POLYFILL_SOURCE%");
-        await injectScriptURL(browser.runtime.getURL("dist/ruffle.js"));
+        await injectScriptURL(browser.runtime.getURL("dist/ruffleMain.js"));
     }
 
     window.addEventListener("message", (event) => {

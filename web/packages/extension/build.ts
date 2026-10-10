@@ -151,6 +151,8 @@ await esbuild.build({
         onboard: "./src/onboard.ts",
         content: "./src/content.ts",
         ruffle: "./src/ruffle.ts",
+        ruffleMain: "./src/ruffle-main.ts",
+        ruffleCore: "./src/ruffle-core.ts",
         background: "./src/background.ts",
         player: "./src/player.ts",
         pluginPolyfill: "./src/plugin-polyfill.ts",
