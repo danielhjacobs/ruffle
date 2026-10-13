@@ -150,7 +150,7 @@ await esbuild.build({
         options: "./src/options.ts",
         onboard: "./src/onboard.ts",
         content: "./src/content.ts",
-        ruffle: "./src/ruffle-main.ts",
+        ruffle: "./src/ruffle.ts",
         background: "./src/background.ts",
         player: "./src/player.ts",
         pluginPolyfill: "./src/plugin-polyfill.ts",
