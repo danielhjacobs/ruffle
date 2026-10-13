@@ -1,4 +1,5 @@
 import { Setup, setCurrentScriptURL } from "ruffle-core";
+import { polyfillNow } from "ruffle-core/dist/polyfills.js";
 import { Message } from "./messages";
 
 /**
@@ -13,6 +14,36 @@ import { Message } from "./messages";
 
 // Current message ID to be included in openInNewTab
 let currentMessageId: string | null = null;
+let ruffleLoaded = false;
+let pendingPolyfillScan = false;
+let pendingPolyfillScanListenerRegistered = false;
+
+function flushPendingPolyfillScan(): void {
+    if (
+        ruffleLoaded &&
+        pendingPolyfillScan &&
+        window.RufflePlayer?.invoked
+    ) {
+        pendingPolyfillScan = false;
+        polyfillNow();
+    }
+}
+
+// PublicAPI initialization is deferred until the document is ready. Keep scan
+// requests that arrive before that initialization and retry when it completes.
+function requestPolyfillScan(): void {
+    if (!ruffleLoaded || !window.RufflePlayer?.invoked) {
+        pendingPolyfillScan = true;
+        if (ruffleLoaded) {
+            // When the document is already ready, PublicAPI.init() may be queued
+            // with a timeout rather than another readystatechange event.
+            window.setTimeout(flushPendingPolyfillScan, 0);
+        }
+        return;
+    }
+
+    polyfillNow();
+}
 
 function handleMessage(message: Message) {
     switch (message.type) {
@@ -35,8 +66,22 @@ function handleMessage(message: Message) {
             };
             setCurrentScriptURL(publicPath);
             Setup.installRuffle("extension");
+            ruffleLoaded = true;
+            if (!pendingPolyfillScanListenerRegistered) {
+                // Register after installRuffle so its own initialization listener
+                // runs before we flush a queued scan.
+                document.addEventListener(
+                    "readystatechange",
+                    flushPendingPolyfillScan,
+                );
+                pendingPolyfillScanListenerRegistered = true;
+            }
+            window.setTimeout(flushPendingPolyfillScan, 0);
             return {};
         }
+        case "scan":
+            requestPolyfillScan();
+            return {};
         case "ping":
             // Ping back.
             return {};

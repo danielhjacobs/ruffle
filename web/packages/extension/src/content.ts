@@ -112,6 +112,45 @@ function isXMLDocument(): boolean {
     return document.createElement("foo").tagName !== "FOO";
 }
 
+/**
+ * Ask the main-world Ruffle script to scan the DOM. These notifications use a
+ * null message index because they do not need an RPC response.
+ */
+function requestPolyfillScan(): void {
+    window.postMessage(
+        {
+            to: "ruffle_page",
+            index: null,
+            id: ID,
+            data: { type: "scan" },
+        },
+        "*",
+    );
+}
+
+/**
+ * Watch for Flash elements added by page scripts. The isolated world can observe
+ * the shared DOM without running this detection code in the page's JS environment.
+ */
+function initMutationObserver(): void {
+    const observer = new MutationObserver((mutationsList) => {
+        const embedOrObjectAdded = mutationsList.some((mutation) =>
+            Array.from(mutation.addedNodes).some(
+                (node) =>
+                    ["EMBED", "OBJECT"].includes(node.nodeName) ||
+                    (node instanceof Element &&
+                        node.querySelector("embed, object") !== null),
+            ),
+        );
+
+        if (embedOrObjectAdded) {
+            requestPolyfillScan();
+        }
+    });
+
+    observer.observe(document, { childList: true, subtree: true });
+}
+
 (async () => {
     enableBrowserOnOutdatedChromium();
     await browser.storage.sync.set({
@@ -193,6 +232,8 @@ function isXMLDocument(): boolean {
         }
     });
 
+    initMutationObserver();
+
     await sendMessageToPage({
         type: "load",
         config: {
@@ -203,4 +244,8 @@ function isXMLDocument(): boolean {
         },
         publicPath: browser.runtime.getURL("/dist/"),
     });
+
+    // Ensure there is an initial scan even if this PublicAPI was already invoked
+    // by another Ruffle source before the extension was installed.
+    requestPolyfillScan();
 })();

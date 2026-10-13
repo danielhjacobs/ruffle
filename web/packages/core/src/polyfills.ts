@@ -217,12 +217,33 @@ export function pluginPolyfill(): void {
 }
 
 /**
+ * Run the Flash element and frame polyfills without installing a MutationObserver.
+ *
+ * The extension observes DOM mutations in its isolated content-script world and
+ * asks its main-world script to run this when needed.
+ */
+export function polyfillNow(): void {
+    const config = window.RufflePlayer?.config ?? {};
+    if ("polyfills" in config && config["polyfills"] === false) {
+        return;
+    }
+
+    if (!isFlashEnabledBrowser()) {
+        polyfillFlashInstances();
+        polyfillFrames();
+    }
+}
+
+/**
  * Polyfills legacy Flash content on the page.
  */
 export function polyfill(): void {
     if (!isFlashEnabledBrowser()) {
         polyfillFlashInstances();
         polyfillFrames();
-        initMutationObserver();
+        // The extension observes DOM mutations from its isolated content script.
+        if (!isExtension) {
+            initMutationObserver();
+        }
     }
 }
