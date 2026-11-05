@@ -471,13 +471,13 @@ fn deserialize_value_inner<'gc>(
             value
         }
         AmfValue::XML { value: content, .. } => {
-            // TODO(moulins): how exactly is the XML object instantiated? this matters when
-            // the XML class was monkeypatched by the user.
+            // AMF deserialization uses the built-in XML class, even if content has
+            // modified the global XML constructor.
             let args = &[Value::String(AvmString::new_utf8(activation.gc(), content))];
-            let value = match activation.instantiate_class_fast([istr!("XML")], args) {
-                Ok(Some(xml)) => xml,
-                _ => Value::Undefined,
-            };
+            let xml_constructor = activation.prototypes().xml_constructor;
+            let value = xml_constructor
+                .construct(activation, args)
+                .unwrap_or(Value::Undefined);
 
             if xml_is_referenceable {
                 reference_cache.insert(value);
@@ -633,5 +633,32 @@ pub(crate) fn deserialize_local_connection_value<'gc>(
             let mut reference_cache = Amf0ReferenceCache::default();
             deserialize_value(activation, val, &mut reference_cache)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::avm1::error::Error;
+    use crate::avm1::test_utils::with_avm;
+
+    #[test]
+    fn reference_cache_stops_at_the_amf0_reference_limit() {
+        with_avm(8, |_activation, _this| -> Result<(), Error> {
+            let mut reference_cache = Amf0ReferenceCache::default();
+
+            // AMF0 references use a 16-bit index, so indices 0 through 65535
+            // are the complete set of representable references.
+            for _ in 0..=u16::MAX {
+                reference_cache.insert(Value::Undefined);
+            }
+            assert_eq!(reference_cache.values.len(), usize::from(u16::MAX) + 1);
+
+            // Additional objects cannot be addressed by an AMF0 reference.
+            reference_cache.insert(Value::Null);
+            assert_eq!(reference_cache.values.len(), usize::from(u16::MAX) + 1);
+
+            Ok(())
+        });
     }
 }
