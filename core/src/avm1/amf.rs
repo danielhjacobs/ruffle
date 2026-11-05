@@ -661,4 +661,46 @@ mod tests {
             Ok(())
         });
     }
+
+    #[test]
+    fn local_connection_deserializes_dense_ecma_array_values() {
+        with_avm(8, |activation, _this| -> Result<(), Error> {
+            let value = AmfValue::ECMAArray {
+                id: ObjectId::INVALID,
+                data: ECMAArrayObjectValue {
+                    dense: vec![
+                        AmfValue::Object {
+                            id: ObjectId::INVALID,
+                            data: ObjectValue {
+                                elements: vec![Element::new(
+                                    "marker",
+                                    AmfValue::String("dense".to_string()),
+                                )],
+                                class_definition: None,
+                            },
+                        },
+                        AmfValue::Number(42.0),
+                    ],
+                    elements: Vec::new(),
+                    length: 2,
+                },
+            };
+
+            let Value::Object(array) = deserialize_local_connection_value(activation, &value)
+            else {
+                panic!("LocalConnection ECMA array should deserialize to an array");
+            };
+
+            let Value::Object(first) = array.get_element(activation, 0) else {
+                panic!("First dense ECMA array value should be an object");
+            };
+            assert_eq!(
+                first.get(AvmString::new_utf8(activation.gc(), "marker"), activation)?,
+                Value::String(AvmString::new_utf8(activation.gc(), "dense")),
+            );
+            assert_eq!(array.get_element(activation, 1), 42.0.into());
+
+            Ok(())
+        });
+    }
 }
