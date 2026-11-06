@@ -588,7 +588,7 @@ pub(crate) fn deserialize_local_connection_value<'gc>(
                 let mut reference_cache =
                     local_connection_reference_cache(root, references_before_property);
                 let child = deserialize_value(activation, item, &mut reference_cache);
-                obj.set_element(activation, index, child).unwrap();
+                obj.set_element(activation, index as i32, child).unwrap();
                 references_before_property = references_before_property
                     .saturating_add(count_amf0_references(item))
                     .min(MAX_AMF0_REFERENCES);
