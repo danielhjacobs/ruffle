@@ -62,8 +62,24 @@ fn object_class_name<'gc>(
     }
 }
 
-/// Serialize AMF data in NetConnection.addHeader, NetConnection.call, and LocalConnection.send
+/// Serialize AMF data for LocalConnection.send.
 pub fn serialize<'gc>(activation: &mut Activation<'_, 'gc>, value: Value<'gc>) -> AmfValue {
+    serialize_with_array_encoding(activation, value, ArrayEncoding::StrictWhenDense)
+}
+
+/// Serialize AMF data for NetConnection.addHeader and NetConnection.call.
+pub fn serialize_net_connection<'gc>(
+    activation: &mut Activation<'_, 'gc>,
+    value: Value<'gc>,
+) -> AmfValue {
+    serialize_with_array_encoding(activation, value, ArrayEncoding::StrictWhenNoCustomProperties)
+}
+
+fn serialize_with_array_encoding<'gc>(
+    activation: &mut Activation<'_, 'gc>,
+    value: Value<'gc>,
+    array_encoding: ArrayEncoding,
+) -> AmfValue {
     match value {
         Value::Undefined => AmfValue::Undefined,
         Value::Null => AmfValue::Null,
@@ -74,7 +90,7 @@ pub fn serialize<'gc>(activation: &mut Activation<'_, 'gc>, value: Value<'gc>) -
             if object.as_display_object().is_some() {
                 AmfValue::Undefined
             } else if object.is_native_array() {
-                serialize_array(activation, object)
+                serialize_array(activation, object, array_encoding)
             } else if let Some(xml_node) = object.as_xml_node() {
                 let string = xml_node
                     .into_string(activation)
@@ -91,7 +107,7 @@ pub fn serialize<'gc>(activation: &mut Activation<'_, 'gc>, value: Value<'gc>) -
             } else {
                 let class_def =
                     object_class_name(activation, object).map(ClassDefinition::default_with_name);
-                let elements = serialize_object_properties(activation, object);
+                let elements = serialize_object_properties(activation, object, array_encoding);
                 AmfValue::Object {
                     id: ObjectId::INVALID,
                     data: ObjectValue {
@@ -109,6 +125,7 @@ pub fn serialize<'gc>(activation: &mut Activation<'_, 'gc>, value: Value<'gc>) -
 fn serialize_object_properties<'gc>(
     activation: &mut Activation<'_, 'gc>,
     object: Object<'gc>,
+    array_encoding: ArrayEncoding,
 ) -> Vec<Element> {
     let mut w = Amf0Writer::default();
 
@@ -119,7 +136,7 @@ fn serialize_object_properties<'gc>(
     let root_reference = w.make_reference();
     w.cache_add(root_key, root_reference);
 
-    recursive_serialize(activation, object, &mut w, ArrayEncoding::StrictWhenDense);
+    recursive_serialize(activation, object, &mut w, array_encoding);
     w.commit_lso("root").into_iter().collect()
 }
 
@@ -132,47 +149,78 @@ fn avm1_array_index(name: &str) -> Option<i32> {
     (index >= 0 && index.to_string() == name).then_some(index)
 }
 
-/// Serialize an array for NetConnection and LocalConnection
-fn serialize_array<'gc>(activation: &mut Activation<'_, 'gc>, array: Object<'gc>) -> AmfValue {
+/// Parse an array index the way Flash's NetConnection AMF serializer does.
+/// Unlike LocalConnection, this accepts leading zeroes and a leading plus sign,
+/// while still rejecting whitespace and negative values.
+fn net_connection_array_index(name: &str) -> Option<usize> {
+    name.parse::<usize>().ok()
+}
+
+/// Serialize an array according to the transport-specific AMF0 array rules.
+fn serialize_array<'gc>(
+    activation: &mut Activation<'_, 'gc>,
+    array: Object<'gc>,
+    array_encoding: ArrayEncoding,
+) -> AmfValue {
     let mut length = array.length(activation).unwrap_or(0).max(0) as usize;
     let keys = array.get_keys(activation, false);
 
-    // Only canonical AVM1 array indices contribute to the array length.
-    for key in &keys {
-        if let Some(index) = avm1_array_index(key.to_utf8_lossy().as_ref()) {
-            length = length.max(index as usize + 1);
+    let is_strict_array = match array_encoding {
+        ArrayEncoding::EcmaArray => false,
+        ArrayEncoding::StrictWhenDense => {
+            for key in &keys {
+                if let Some(index) = avm1_array_index(key.to_utf8_lossy().as_ref()) {
+                    length = length.max(index as usize + 1);
+                }
+            }
+
+            // LocalConnection must preserve holes and noncanonical numeric-looking
+            // property names, so only genuinely dense arrays use strict encoding.
+            keys.len() == length
+                && keys.iter().all(|key| {
+                    avm1_array_index(key.to_utf8_lossy().as_ref())
+                        .is_some_and(|index| (index as usize) < length)
+                })
         }
-    }
+        ArrayEncoding::StrictWhenNoCustomProperties => {
+            let mut has_custom_properties = false;
+            for key in &keys {
+                if let Some(index) = net_connection_array_index(key.to_utf8_lossy().as_ref()) {
+                    if let Some(end) = index.checked_add(1) {
+                        length = length.max(end);
+                    }
+                } else {
+                    has_custom_properties = true;
+                }
+            }
 
-    // A strict array must have every index in [0, length) as an own enumerable
-    // property. Merely having numeric-looking keys is not enough: doing so
-    // would turn sparse holes into explicit undefined elements on the receiver.
-    let is_dense = keys.len() == length
-        && keys.iter().all(|key| {
-            avm1_array_index(key.to_utf8_lossy().as_ref())
-                .is_some_and(|index| (index as usize) < length)
-        });
+            // NetConnection follows Flash's legacy numeric-key test: a sparse
+            // array with only numeric keys is still a strict array, with holes
+            // serialized as explicit undefined values.
+            !has_custom_properties
+        }
+    };
 
-    if is_dense {
+    if is_strict_array {
         let mut dense = Vec::with_capacity(length);
         for i in 0..length {
             let elem_name = AvmString::new_utf8(activation.gc(), i.to_string());
             let prop_value = array.get(elem_name, activation).unwrap_or(Value::Undefined);
-            dense.push(serialize(activation, prop_value));
+            dense.push(serialize_with_array_encoding(activation, prop_value, array_encoding));
         }
         AmfValue::StrictArray {
             id: ObjectId::INVALID,
             values: dense,
         }
     } else {
-        // ECMA arrays preserve sparse indices and associative property names.
-        // Keep the original keys instead of materializing missing slots.
+        // ECMA arrays preserve associative properties and, for LocalConnection,
+        // preserve sparse indices without materializing undefined holes.
         let mut elements = Vec::with_capacity(keys.len());
         for key in keys.into_iter().rev() {
             let prop_value = array.get(key, activation).unwrap_or(Value::Undefined);
             elements.push(Element::new(
                 key.to_string(),
-                serialize(activation, prop_value),
+                serialize_with_array_encoding(activation, prop_value, array_encoding),
             ));
         }
         AmfValue::ECMAArray {
@@ -191,8 +239,10 @@ fn serialize_array<'gc>(activation: &mut Activation<'_, 'gc>, array: Object<'gc>
 pub(crate) enum ArrayEncoding {
     /// SharedObject LSO bodies encode arrays as ECMA arrays.
     EcmaArray,
-    /// AMF0 remoting uses strict arrays for dense arrays.
+    /// LocalConnection uses strict arrays only when every array index exists.
     StrictWhenDense,
+    /// NetConnection uses strict arrays whenever there are no custom properties.
+    StrictWhenNoCustomProperties,
 }
 
 /// Helper to serialize a specific value into the ObjWriter cache architecture.
@@ -210,14 +260,33 @@ fn serialize_value_to_writer<'gc>(
             } else if o.as_display_object().is_some() {
                 writer.undefined(name)
             } else if o.is_native_array() {
-                let length = o.length(activation).unwrap_or(0).max(0) as usize;
+                let mut length = o.length(activation).unwrap_or(0).max(0) as usize;
                 let keys = o.get_keys(activation, false);
-                let is_strict_array = array_encoding == ArrayEncoding::StrictWhenDense
-                    && keys.len() == length
-                    && keys.iter().all(|key| {
-                        avm1_array_index(key.to_utf8_lossy().as_ref())
-                            .is_some_and(|index| (index as usize) < length)
-                    });
+                let is_strict_array = match array_encoding {
+                    ArrayEncoding::EcmaArray => false,
+                    ArrayEncoding::StrictWhenDense => {
+                        keys.len() == length
+                            && keys.iter().all(|key| {
+                                avm1_array_index(key.to_utf8_lossy().as_ref())
+                                    .is_some_and(|index| (index as usize) < length)
+                            })
+                    }
+                    ArrayEncoding::StrictWhenNoCustomProperties => {
+                        let mut has_custom_properties = false;
+                        for key in &keys {
+                            if let Some(index) =
+                                net_connection_array_index(key.to_utf8_lossy().as_ref())
+                            {
+                                if let Some(end) = index.checked_add(1) {
+                                    length = length.max(end);
+                                }
+                            } else {
+                                has_custom_properties = true;
+                            }
+                        }
+                        !has_custom_properties
+                    }
+                };
 
                 if is_strict_array {
                     let (aw, token) = writer.strict_array(CacheKey::from_ptr(o.as_ptr()));
