@@ -153,15 +153,11 @@ fn avm1_array_index(name: &str) -> Option<i32> {
     (index >= 0 && index.to_string() == name).then_some(index)
 }
 
-/// Parse an array index the way Flash's NetConnection AMF serializer does.
-/// Unlike LocalConnection, this accepts leading zeroes and a leading plus sign,
-/// while still rejecting whitespace and negative values.
+/// Parse a numeric array key the way Flash's NetConnection AMF serializer does.
+/// Leading zeroes are accepted, but leading plus signs, whitespace, and negative
+/// values remain associative property names.
 fn net_connection_array_index(name: &str) -> Option<usize> {
-    let digits = name.strip_prefix('+').unwrap_or(name);
-    if digits.is_empty() {
-        return None;
-    }
-    digits.parse::<usize>().ok()
+    name.parse::<usize>().ok()
 }
 
 /// Serialize an array according to the transport-specific AMF0 array rules.
@@ -760,16 +756,14 @@ mod tests {
     fn net_connection_array_indices_use_flash_numeric_key_parsing() {
         assert_eq!(net_connection_array_index("2"), Some(2));
         assert_eq!(net_connection_array_index("02"), Some(2));
-        assert_eq!(net_connection_array_index("+5"), Some(5));
-        assert_eq!(net_connection_array_index("+02"), Some(2));
 
-        for name in ["", "+", "++5", " 3", "4 ", "-1", "\t6"] {
+        for name in ["", "+", "+5", "+02", "++5", " 3", "4 ", "-1", "\t6"] {
             assert_eq!(net_connection_array_index(name), None, "{name:?}");
         }
     }
 
     #[test]
-    fn net_connection_serializes_plus_prefixed_array_key_as_strict_array() {
+    fn net_connection_preserves_plus_prefixed_array_key() {
         with_avm(8, |activation, _this| -> Result<(), Error> {
             let array_constructor = activation.prototypes().array_constructor;
             let Value::Object(array) = array_constructor.construct(activation, &[])? else {
@@ -792,7 +786,10 @@ mod tests {
             let serialized = serialize_net_connection(activation, Value::Object(array));
             assert!(matches!(
                 serialized,
-                AmfValue::StrictArray { ref values, .. } if values.len() == 6
+                AmfValue::ECMAArray { ref data, .. }
+                    if data.length == 6
+                        && data.elements.len() == 1
+                        && data.elements[0].name() == "+5"
             ));
 
             Ok(())
