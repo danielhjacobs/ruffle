@@ -1,4 +1,4 @@
-use crate::avm1::amf::{deserialize_value, recursive_serialize};
+use crate::avm1::amf::{Amf0ReferenceCache, deserialize_value, recursive_serialize};
 use crate::avm1::property_decl::{DeclContext, PropertyOrder, StaticDeclarations, SystemClass};
 use crate::avm1::{Activation, Attribute, Error, NativeObject, Object, Value};
 use crate::avm1_stub;
@@ -10,7 +10,6 @@ use flash_lso::types::Lso;
 use gc_arena::{Collect, Gc};
 use ruffle_macros::istr;
 use std::borrow::Cow;
-use std::collections::BTreeMap;
 
 #[derive(Default, Clone, Collect)]
 #[collect(require_static)]
@@ -90,7 +89,7 @@ fn deserialize_lso<'gc>(
         Some(activation.prototypes().object),
     );
 
-    let mut reference_cache = BTreeMap::default();
+    let mut reference_cache = Amf0ReferenceCache::default();
 
     for child in &lso.body {
         obj.define_value(

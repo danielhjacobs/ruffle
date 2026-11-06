@@ -7,6 +7,22 @@ use ruffle_macros::istr;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
+/// Tracks AMF0 references while deserializing a message.
+#[derive(Default)]
+pub(crate) struct Amf0ReferenceCache<'gc> {
+    values: BTreeMap<Reference, Value<'gc>>,
+}
+
+impl<'gc> Amf0ReferenceCache<'gc> {
+    pub(crate) fn insert(&mut self, reference: Reference, value: Value<'gc>) {
+        self.values.insert(reference, value);
+    }
+
+    fn get(&self, reference: Reference) -> Option<&Value<'gc>> {
+        self.values.get(&reference)
+    }
+}
+
 /// AMF0 serializes an object as a TypedObject if its constructor has a class
 /// name registered through `Object.registerClass`; otherwise it serializes it as
 /// an anonymous object. The registered name is written as the AMF0 class name.
@@ -228,7 +244,7 @@ pub fn deserialize_value<'gc>(
     activation: &mut Activation<'_, 'gc>,
     val: &AmfValue,
     lso: &AMF0Decoder,
-    reference_cache: &mut BTreeMap<Reference, Value<'gc>>,
+    reference_cache: &mut Amf0ReferenceCache<'gc>,
 ) -> Value<'gc> {
     match val {
         AmfValue::Null => Value::Null,
@@ -333,7 +349,7 @@ pub fn deserialize_value<'gc>(
         AmfValue::Reference(x) => {
             // This should always be a valid reference, but a "bad" file could create an invalid one
             // In that case we will just assume undefined
-            let val = reference_cache.get(x).unwrap_or(&Value::Undefined);
+            let val = reference_cache.get(*x).unwrap_or(&Value::Undefined);
             *val
         }
         _ => Value::Undefined,
