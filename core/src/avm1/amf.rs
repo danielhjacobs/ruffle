@@ -769,6 +769,37 @@ mod tests {
     }
 
     #[test]
+    fn net_connection_serializes_plus_prefixed_array_key_as_strict_array() {
+        with_avm(8, |activation, _this| -> Result<(), Error> {
+            let array_constructor = activation.prototypes().array_constructor;
+            let Value::Object(array) = array_constructor.construct(activation, &[])? else {
+                panic!("Array constructor should return an object");
+            };
+
+            let key = AvmString::new_utf8(activation.gc(), "+5");
+            array.define_value(
+                activation.gc(),
+                key,
+                Value::String(AvmString::new_utf8(activation.gc(), "value")),
+                Attribute::empty(),
+            );
+            array.set_length(activation, 6)?;
+
+            let keys = array.get_keys(activation, false);
+            assert_eq!(keys.len(), 1);
+            assert_eq!(keys[0].to_utf8_lossy(), "+5");
+
+            let serialized = serialize_net_connection(activation, Value::Object(array));
+            assert!(matches!(
+                serialized,
+                AmfValue::StrictArray { ref values, .. } if values.len() == 6
+            ));
+
+            Ok(())
+        });
+    }
+
+    #[test]
     fn reference_cache_stops_at_the_amf0_reference_limit() {
         with_avm(8, |_activation, _this| -> Result<(), Error> {
             let mut reference_cache = Amf0ReferenceCache::default();
