@@ -127,9 +127,9 @@ fn serialize_object_properties<'gc>(
 ///
 /// Array indices use their canonical unsigned decimal spelling and exclude
 /// 2^32 - 1, which is the sentinel value reserved by the Array length model.
-fn avm1_array_index(name: &str) -> Option<u32> {
-    let index = name.parse::<u32>().ok()?;
-    (index != u32::MAX && index.to_string() == name).then_some(index)
+fn avm1_array_index(name: &str) -> Option<i32> {
+    let index = name.parse::<i32>().ok()?;
+    (index >= 0 && index.to_string() == name).then_some(index)
 }
 
 /// Serialize an array for NetConnection and LocalConnection
@@ -402,7 +402,7 @@ fn deserialize_value_inner<'gc>(
                 );
 
                 if let Some(i) = avm1_array_index(entry.name()) {
-                    obj.set_element(activation, i as i32, child).unwrap();
+                    obj.set_element(activation, i, child).unwrap();
                 } else {
                     obj.define_value(
                         activation.gc(),
@@ -585,7 +585,7 @@ pub(crate) fn deserialize_local_connection_value<'gc>(
                 let mut reference_cache =
                     local_connection_reference_cache(root, references_before_property);
                 let child = deserialize_value(activation, item, &mut reference_cache);
-                obj.set_element(activation, index as i32, child).unwrap();
+                obj.set_element(activation, index, child).unwrap();
                 references_before_property = references_before_property
                     .saturating_add(count_amf0_references(item))
                     .min(MAX_AMF0_REFERENCES);
@@ -648,6 +648,20 @@ mod tests {
     use super::*;
     use crate::avm1::error::Error;
     use crate::avm1::test_utils::with_avm;
+
+    #[test]
+    fn avm1_array_indices_require_canonical_nonnegative_i32_strings() {
+        assert_eq!(avm1_array_index("0"), Some(0));
+        assert_eq!(avm1_array_index("2"), Some(2));
+        assert_eq!(avm1_array_index("2147483647"), Some(i32::MAX));
+
+        for name in [
+            "", "00", "02", "007", "+5", "-1", " 3", "4 ",
+            "2147483648", "4294967295", "1.0",
+        ] {
+            assert_eq!(avm1_array_index(name), None, "{name:?}");
+        }
+    }
 
     #[test]
     fn reference_cache_stops_at_the_amf0_reference_limit() {
