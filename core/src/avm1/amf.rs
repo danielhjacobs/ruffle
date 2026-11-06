@@ -745,6 +745,17 @@ mod tests {
     }
 
     #[test]
+    fn net_connection_array_indices_use_flash_numeric_key_parsing() {
+        assert_eq!(net_connection_array_index("2"), Some(2));
+        assert_eq!(net_connection_array_index("02"), Some(2));
+        assert_eq!(net_connection_array_index("+5"), Some(5));
+
+        for name in ["", " 3", "4 ", "-1", "\\t6"] {
+            assert_eq!(net_connection_array_index(name), None, "{name:?}");
+        }
+    }
+
+    #[test]
     fn reference_cache_stops_at_the_amf0_reference_limit() {
         with_avm(8, |_activation, _this| -> Result<(), Error> {
             let mut reference_cache = Amf0ReferenceCache::default();
