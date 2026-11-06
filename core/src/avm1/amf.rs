@@ -123,56 +123,62 @@ fn serialize_object_properties<'gc>(
     w.commit_lso("root").into_iter().collect()
 }
 
+/// Parse a canonical AVM1 array index.
+///
+/// Array indices use their canonical unsigned decimal spelling and exclude
+/// 2^32 - 1, which is the sentinel value reserved by the Array length model.
+fn avm1_array_index(name: &str) -> Option<u32> {
+    let index = name.parse::<u32>().ok()?;
+    (index != u32::MAX && index.to_string() == name).then_some(index)
+}
+
 /// Serialize an array for NetConnection and LocalConnection
 fn serialize_array<'gc>(activation: &mut Activation<'_, 'gc>, array: Object<'gc>) -> AmfValue {
     let mut length = array.length(activation).unwrap_or(0).max(0) as usize;
     let keys = array.get_keys(activation, false);
 
-    // Flash treats any numeric key as an array element. If a numeric key
-    // exceeds the current length, it expands the array's serialization length.
+    // Only canonical AVM1 array indices contribute to the array length.
     for key in &keys {
-        if let Ok(index) = key.to_utf8_lossy().parse::<usize>() {
-            length = length.max(index + 1);
+        if let Some(index) = avm1_array_index(key.to_utf8_lossy().as_ref()) {
+            length = length.max(index as usize + 1);
         }
     }
 
-    let mut has_custom_properties = false;
-    let mut associative = Vec::new();
+    // A strict array must have every index in [0, length) as an own enumerable
+    // property. Merely having numeric-looking keys is not enough: doing so
+    // would turn sparse holes into explicit undefined elements on the receiver.
+    let is_dense = keys.len() == length
+        && keys.iter().all(|key| {
+            avm1_array_index(key.to_utf8_lossy().as_ref())
+                .is_some_and(|index| (index as usize) < length)
+        });
 
-    // Flash expects insertion order for these properties
-    for key in keys.into_iter().rev() {
-        // A property is "custom" if it is entirely non-numeric
-        if key.to_utf8_lossy().parse::<usize>().is_err() {
-            has_custom_properties = true;
-        }
-
-        let prop_value = array.get(key, activation).unwrap_or(Value::Undefined);
-        let value = serialize(activation, prop_value);
-        associative.push(Element::new(key.to_string(), value));
-    }
-    if has_custom_properties {
-        // Mixed Array: Has true non-numeric keys
-        AmfValue::ECMAArray {
-            id: ObjectId::INVALID,
-            data: ECMAArrayObjectValue {
-                dense: Vec::new(),
-                elements: associative,
-                length: length as u32,
-            },
-        }
-    } else {
-        // Pure Dense Array: Pad holes with Undefined to maintain contiguous indices
+    if is_dense {
         let mut dense = Vec::with_capacity(length);
         for i in 0..length {
             let elem_name = AvmString::new_utf8(activation.gc(), i.to_string());
             let prop_value = array.get(elem_name, activation).unwrap_or(Value::Undefined);
-            let value = serialize(activation, prop_value);
-            dense.push(value);
+            dense.push(serialize(activation, prop_value));
         }
-        // Output as a StrictArray.
         AmfValue::StrictArray {
             id: ObjectId::INVALID,
             values: dense,
+        }
+    } else {
+        // ECMA arrays preserve sparse indices and associative property names.
+        // Keep the original keys instead of materializing missing slots.
+        let mut elements = Vec::with_capacity(keys.len());
+        for key in keys.into_iter().rev() {
+            let prop_value = array.get(key, activation).unwrap_or(Value::Undefined);
+            elements.push(Element::new(key.to_string(), serialize(activation, prop_value)));
+        }
+        AmfValue::ECMAArray {
+            id: ObjectId::INVALID,
+            data: ECMAArrayObjectValue {
+                dense: Vec::new(),
+                elements,
+                length: length as u32,
+            },
         }
     }
 }
@@ -202,11 +208,12 @@ fn serialize_value_to_writer<'gc>(
                 writer.undefined(name)
             } else if o.is_native_array() {
                 let length = o.length(activation).unwrap_or(0).max(0) as usize;
+                let keys = o.get_keys(activation, false);
                 let is_strict_array = array_encoding == ArrayEncoding::StrictWhenDense
-                    && o.get_keys(activation, false).iter().all(|key| {
-                        key.to_utf8_lossy()
-                            .parse::<usize>()
-                            .is_ok_and(|index| index < length)
+                    && keys.len() == length
+                    && keys.iter().all(|key| {
+                        avm1_array_index(key.to_utf8_lossy().as_ref())
+                            .is_some_and(|index| (index as usize) < length)
                     });
 
                 if is_strict_array {
@@ -394,8 +401,8 @@ fn deserialize_value_inner<'gc>(
                     xml_is_referenceable,
                 );
 
-                if let Ok(i) = entry.name().parse::<i32>() {
-                    obj.set_element(activation, i, child).unwrap();
+                if let Some(i) = avm1_array_index(entry.name()) {
+                    obj.set_element(activation, i as i32, child).unwrap();
                 } else {
                     obj.define_value(
                         activation.gc(),
@@ -589,8 +596,8 @@ pub(crate) fn deserialize_local_connection_value<'gc>(
                     local_connection_reference_cache(root, references_before_property);
                 let child = deserialize_value(activation, entry.value(), &mut reference_cache);
 
-                if let Ok(index) = entry.name().parse::<i32>() {
-                    obj.set_element(activation, index, child).unwrap();
+                if let Some(index) = avm1_array_index(entry.name()) {
+                    obj.set_element(activation, index as i32, child).unwrap();
                 } else {
                     obj.define_value(
                         activation.gc(),
