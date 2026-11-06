@@ -72,7 +72,11 @@ pub fn serialize_net_connection<'gc>(
     activation: &mut Activation<'_, 'gc>,
     value: Value<'gc>,
 ) -> AmfValue {
-    serialize_with_array_encoding(activation, value, ArrayEncoding::StrictWhenNoCustomProperties)
+    serialize_with_array_encoding(
+        activation,
+        value,
+        ArrayEncoding::StrictWhenNoCustomProperties,
+    )
 }
 
 fn serialize_with_array_encoding<'gc>(
@@ -210,7 +214,11 @@ fn serialize_array<'gc>(
         for i in 0..length {
             let elem_name = AvmString::new_utf8(activation.gc(), i.to_string());
             let prop_value = array.get(elem_name, activation).unwrap_or(Value::Undefined);
-            dense.push(serialize_with_array_encoding(activation, prop_value, array_encoding));
+            dense.push(serialize_with_array_encoding(
+                activation,
+                prop_value,
+                array_encoding,
+            ));
         }
         AmfValue::StrictArray {
             id: ObjectId::INVALID,
