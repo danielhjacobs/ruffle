@@ -728,3 +728,138 @@ pub(crate) fn deserialize_local_connection_value<'gc>(
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::avm1::error::Error;
+    use crate::avm1::test_utils::with_avm;
+
+    #[test]
+    fn avm1_array_indices_require_canonical_nonnegative_i32_strings() {
+        assert_eq!(avm1_array_index("0"), Some(0));
+        assert_eq!(avm1_array_index("2"), Some(2));
+        assert_eq!(avm1_array_index("2147483647"), Some(i32::MAX));
+
+        for name in [
+            "",
+            "00",
+            "02",
+            "007",
+            "+5",
+            "-1",
+            " 3",
+            "4 ",
+            "2147483648",
+            "4294967295",
+            "1.0",
+        ] {
+            assert_eq!(avm1_array_index(name), None, "{name:?}");
+        }
+    }
+
+    #[test]
+    fn net_connection_array_indices_use_flash_numeric_key_parsing() {
+        assert_eq!(net_connection_array_index("2"), Some(2));
+        assert_eq!(net_connection_array_index("02"), Some(2));
+
+        for name in ["", "+", "+5", "+02", "++5", " 3", "4 ", "-1", "\t6"] {
+            assert_eq!(net_connection_array_index(name), None, "{name:?}");
+        }
+    }
+
+    #[test]
+    fn net_connection_preserves_plus_prefixed_array_key() {
+        with_avm(8, |activation, _this| -> Result<(), Error> {
+            let array_constructor = activation.prototypes().array_constructor;
+            let Value::Object(array) = array_constructor.construct(activation, &[])? else {
+                panic!("Array constructor should return an object");
+            };
+
+            let key = AvmString::new_utf8(activation.gc(), "+5");
+            array.define_value(
+                activation.gc(),
+                key,
+                Value::String(AvmString::new_utf8(activation.gc(), "value")),
+                Attribute::empty(),
+            );
+            array.set_length(activation, 6)?;
+
+            let keys = array.get_keys(activation, false);
+            assert_eq!(keys.len(), 1);
+            assert_eq!(keys[0].to_utf8_lossy(), "+5");
+
+            let serialized = serialize_net_connection(activation, Value::Object(array));
+            assert!(matches!(
+                serialized,
+                AmfValue::ECMAArray { ref data, .. }
+                    if data.length == 6
+                        && data.elements.len() == 1
+                        && data.elements[0].name() == "+5"
+            ));
+
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn reference_cache_stops_at_the_amf0_reference_limit() {
+        with_avm(8, |_activation, _this| -> Result<(), Error> {
+            let mut reference_cache = Amf0ReferenceCache::default();
+
+            // AMF0 references use a 16-bit index, so indices 0 through 65535
+            // are the complete set of representable references.
+            for _ in 0..=u16::MAX {
+                reference_cache.insert(Value::Undefined);
+            }
+            assert_eq!(reference_cache.values.len(), usize::from(u16::MAX) + 1);
+
+            // Additional objects cannot be addressed by an AMF0 reference.
+            reference_cache.insert(Value::Null);
+            assert_eq!(reference_cache.values.len(), usize::from(u16::MAX) + 1);
+
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn local_connection_deserializes_dense_ecma_array_values() {
+        with_avm(8, |activation, _this| -> Result<(), Error> {
+            let value = AmfValue::ECMAArray {
+                id: ObjectId::INVALID,
+                data: ECMAArrayObjectValue {
+                    dense: vec![
+                        AmfValue::Object {
+                            id: ObjectId::INVALID,
+                            data: ObjectValue {
+                                elements: vec![Element::new(
+                                    "marker",
+                                    AmfValue::String("dense".to_string()),
+                                )],
+                                class_definition: None,
+                            },
+                        },
+                        AmfValue::Number(42.0),
+                    ],
+                    elements: Vec::new(),
+                    length: 2,
+                },
+            };
+
+            let Value::Object(array) = deserialize_local_connection_value(activation, &value)
+            else {
+                panic!("LocalConnection ECMA array should deserialize to an array");
+            };
+
+            let Value::Object(first) = array.get_element(activation, 0) else {
+                panic!("First dense ECMA array value should be an object");
+            };
+            assert_eq!(
+                first.get(AvmString::new_utf8(activation.gc(), "marker"), activation)?,
+                Value::String(AvmString::new_utf8(activation.gc(), "dense")),
+            );
+            assert_eq!(array.get_element(activation, 1), 42.0.into());
+
+            Ok(())
+        });
+    }
+}
