@@ -750,7 +750,7 @@ mod tests {
         assert_eq!(net_connection_array_index("02"), Some(2));
         assert_eq!(net_connection_array_index("+5"), Some(5));
 
-        for name in ["", " 3", "4 ", "-1", "\\t6"] {
+        for name in ["", " 3", "4 ", "-1", "\t6"] {
             assert_eq!(net_connection_array_index(name), None, "{name:?}");
         }
     }
