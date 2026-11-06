@@ -170,7 +170,10 @@ fn serialize_array<'gc>(activation: &mut Activation<'_, 'gc>, array: Object<'gc>
         let mut elements = Vec::with_capacity(keys.len());
         for key in keys.into_iter().rev() {
             let prop_value = array.get(key, activation).unwrap_or(Value::Undefined);
-            elements.push(Element::new(key.to_string(), serialize(activation, prop_value)));
+            elements.push(Element::new(
+                key.to_string(),
+                serialize(activation, prop_value),
+            ));
         }
         AmfValue::ECMAArray {
             id: ObjectId::INVALID,
@@ -656,8 +659,17 @@ mod tests {
         assert_eq!(avm1_array_index("2147483647"), Some(i32::MAX));
 
         for name in [
-            "", "00", "02", "007", "+5", "-1", " 3", "4 ",
-            "2147483648", "4294967295", "1.0",
+            "",
+            "00",
+            "02",
+            "007",
+            "+5",
+            "-1",
+            " 3",
+            "4 ",
+            "2147483648",
+            "4294967295",
+            "1.0",
         ] {
             assert_eq!(avm1_array_index(name), None, "{name:?}");
         }
