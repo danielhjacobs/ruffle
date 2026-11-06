@@ -600,7 +600,7 @@ pub(crate) fn deserialize_local_connection_value<'gc>(
                 let child = deserialize_value(activation, entry.value(), &mut reference_cache);
 
                 if let Some(index) = avm1_array_index(entry.name()) {
-                    obj.set_element(activation, index as i32, child).unwrap();
+                    obj.set_element(activation, index, child).unwrap();
                 } else {
                     obj.define_value(
                         activation.gc(),
