@@ -153,7 +153,11 @@ fn avm1_array_index(name: &str) -> Option<i32> {
 /// Unlike LocalConnection, this accepts leading zeroes and a leading plus sign,
 /// while still rejecting whitespace and negative values.
 fn net_connection_array_index(name: &str) -> Option<usize> {
-    name.parse::<usize>().ok()
+    let digits = name.strip_prefix('+').unwrap_or(name);
+    if digits.is_empty() {
+        return None;
+    }
+    digits.parse::<usize>().ok()
 }
 
 /// Serialize an array according to the transport-specific AMF0 array rules.
@@ -749,8 +753,9 @@ mod tests {
         assert_eq!(net_connection_array_index("2"), Some(2));
         assert_eq!(net_connection_array_index("02"), Some(2));
         assert_eq!(net_connection_array_index("+5"), Some(5));
+        assert_eq!(net_connection_array_index("+02"), Some(2));
 
-        for name in ["", " 3", "4 ", "-1", "\t6"] {
+        for name in ["", "+", "++5", " 3", "4 ", "-1", "\t6"] {
             assert_eq!(net_connection_array_index(name), None, "{name:?}");
         }
     }
