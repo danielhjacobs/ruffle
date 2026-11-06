@@ -142,8 +142,8 @@ fn serialize_object_properties<'gc>(
 
 /// Parse a canonical AVM1 array index.
 ///
-/// Array indices use their canonical unsigned decimal spelling and exclude
-/// 2^32 - 1, which is the sentinel value reserved by the Array length model.
+/// Only canonical nonnegative decimal strings representable by AVM1's
+/// signed 32-bit element-index API are treated as array indices.
 fn avm1_array_index(name: &str) -> Option<i32> {
     let index = name.parse::<i32>().ok()?;
     (index >= 0 && index.to_string() == name).then_some(index)
