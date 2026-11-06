@@ -99,7 +99,7 @@ dependencies = [
  "ndk-context",
  "ndk-sys",
  "num_enum",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -1373,7 +1373,7 @@ dependencies = [
  "epaint",
  "log",
  "profiling",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "type-map",
  "web-time",
  "wgpu",
@@ -1479,9 +1479,9 @@ dependencies = [
 
 [[package]]
 name = "enumset"
-version = "1.1.13"
+version = "1.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "839c4174b41e75c8f7306110b2c51996a293b8d1d850edd529011841d9fede7d"
+checksum = "2e6bd2d7c76d078cd7a460fa169f778c42c026fe16d90e37d7a45d37181bdce5"
 dependencies = [
  "enumset_derive",
 ]
@@ -1684,12 +1684,12 @@ checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
 
 [[package]]
 name = "flash-lso"
-version = "0.6.0"
-source = "git+https://github.com/ruffle-rs/rust-flash-lso?rev=61b717248aae853a4f5d8a103eba704268d286c8#61b717248aae853a4f5d8a103eba704268d286c8"
+version = "0.7.0"
+source = "git+https://github.com/ruffle-rs/rust-flash-lso?rev=82de7aefb397253ebd9f99805c317fd763306f84#82de7aefb397253ebd9f99805c317fd763306f84"
 dependencies = [
  "enumset",
  "nom 8.0.0",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -1750,7 +1750,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "54f0d287c53ffd184d04d8677f590f4ac5379785529e5e08b1c8083acdd5c198"
 dependencies = [
  "memchr",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -1781,7 +1781,7 @@ dependencies = [
  "ignore",
  "intl-memoizer",
  "log",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "unic-langid",
 ]
 
@@ -1799,7 +1799,7 @@ name = "flv-rs"
 version = "0.7.1"
 dependencies = [
  "bitflags 2.13.2",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -2232,7 +2232,7 @@ dependencies = [
  "http",
  "js-sys",
  "pin-project",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -2280,7 +2280,7 @@ dependencies = [
  "hashbrown 0.16.1",
  "log",
  "presser",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "windows 0.62.2",
 ]
 
@@ -2319,7 +2319,7 @@ source = "git+https://github.com/ruffle-rs/h263-rs?rev=27ee833ca97aadd2a14cf0b3b
 dependencies = [
  "bitflags 2.13.2",
  "num-traits",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -2780,7 +2780,7 @@ dependencies = [
  "jni-sys 0.4.1",
  "log",
  "simd_cesu8",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "walkdir",
  "windows-link",
 ]
@@ -2850,7 +2850,7 @@ dependencies = [
  "bindgen",
  "cc",
  "libc",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -3273,7 +3273,7 @@ dependencies = [
  "once_cell",
  "rustc-hash 1.1.0",
  "spirv",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "unicode-ident",
 ]
 
@@ -3306,7 +3306,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "indexmap",
  "rustc-hash 1.1.0",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4170,7 +4170,7 @@ dependencies = [
  "pest",
  "pest_derive",
  "serde_json",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4534,7 +4534,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "60dc65c0ff1a7ae1294b0c67b9f14baf70b644404010370171787bfac1038fc0"
 dependencies = [
  "libredox",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4720,7 +4720,7 @@ dependencies = [
  "ruffle_macros",
  "ruffle_wstr",
  "swf 0.4.0",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "tracing",
  "url",
 ]
@@ -4783,7 +4783,7 @@ dependencies = [
  "smallvec",
  "swf 0.4.0",
  "symphonia",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "tracing",
  "tracy-client",
  "ttf-parser",
@@ -4828,7 +4828,7 @@ dependencies = [
  "ruffle_video_external",
  "ruffle_video_software",
  "sys-locale",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "tokio",
  "toml_edit",
  "tracing",
@@ -4863,7 +4863,7 @@ dependencies = [
  "ruffle_core",
  "ruffle_render",
  "tempfile",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "tokio",
  "toml_edit",
  "tracing",
@@ -4940,7 +4940,7 @@ dependencies = [
  "serde",
  "smallvec",
  "swf 0.4.0",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "tracing",
  "wasm-bindgen",
  "wgpu",
@@ -4969,7 +4969,7 @@ dependencies = [
  "ruffle_render",
  "ruffle_web_common",
  "swf 0.4.0",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "wasm-bindgen",
  "web-sys",
 ]
@@ -5064,7 +5064,7 @@ dependencies = [
  "ruffle_render",
  "slotmap",
  "swf 0.4.0",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -5083,7 +5083,7 @@ dependencies = [
  "slotmap",
  "swf 0.4.0",
  "tempfile",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "tracing",
  "tracing-subscriber",
  "tracing-wasm",
@@ -5106,7 +5106,7 @@ dependencies = [
  "ruffle_video",
  "slotmap",
  "swf 0.4.0",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -5134,7 +5134,7 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "slotmap",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "tracing",
  "tracing-log",
  "tracing-subscriber",
@@ -5561,7 +5561,7 @@ checksum = "0d585997b0ac10be3c5ee635f1bab02d512760d14b7c468801ac8a01d9ae5f1d"
 dependencies = [
  "num-bigint",
  "num-traits",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "time",
 ]
 
@@ -5966,11 +5966,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "2.0.18"
+version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4288b5bcbc7920c07a1149a35cf9590a2aa808e0bc1eafaade0b80947865fbc4"
+checksum = "09e52cb86a36cede5cb101bf8908837b3e4c6e5e59fe7fd85c23fb56200d189e"
 dependencies = [
- "thiserror-impl 2.0.18",
+ "thiserror-impl 2.0.21",
 ]
 
 [[package]]
@@ -5986,13 +5986,13 @@ dependencies = [
 
 [[package]]
 name = "thiserror-impl"
-version = "2.0.18"
+version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebc4ee7f67670e9b64d05fa4253e753e016c6c95ff35b89b7941d6b856dec1d5"
+checksum = "fe5197923287db20a58125f0bc85c062f7f2c892de97b18c356f9efb14b28524"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.9",
 ]
 
 [[package]]
@@ -6270,7 +6270,7 @@ checksum = "050686193eb999b4bb3bc2acfa891a13da00f79734704c4b8b4ef1a10b368a3c"
 dependencies = [
  "crossbeam-channel",
  "symlink",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "time",
  "tracing-subscriber",
 ]
@@ -6588,7 +6588,7 @@ dependencies = [
  "log",
  "peniko",
  "smallvec",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -6973,7 +6973,7 @@ dependencies = [
  "raw-window-handle",
  "rustc-hash 1.1.0",
  "smallvec",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "wgpu-core-deps-apple",
  "wgpu-core-deps-emscripten",
  "wgpu-core-deps-wasm",
@@ -7064,7 +7064,7 @@ dependencies = [
  "renderdoc-sys",
  "smallvec",
  "static_assertions",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "wasm-bindgen",
  "wayland-sys",
  "web-sys",
@@ -7092,7 +7092,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a15a635a2a2ec0b9787589f17dbbffaa7960e779bcf0348a67f73c3e7665f9eb"
 dependencies = [
  "parking_lot",
- "thiserror 2.0.18",
+ "thiserror 2.0.21",
  "tracy-client",
  "wgpu",
 ]
