@@ -157,7 +157,12 @@ fn avm1_array_index(name: &str) -> Option<i32> {
 /// Leading zeroes are accepted, but leading plus signs, whitespace, and negative
 /// values remain associative property names.
 fn net_connection_array_index(name: &str) -> Option<usize> {
-    name.parse::<usize>().ok()
+    // Rust's integer parser accepts a leading '+', but Flash keeps that key associative.
+    if name.starts_with('+') {
+        None
+    } else {
+        name.parse::<usize>().ok()
+    }
 }
 
 /// Serialize an array according to the transport-specific AMF0 array rules.
