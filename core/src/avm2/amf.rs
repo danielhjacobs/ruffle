@@ -130,7 +130,7 @@ pub fn serialize_value<'gc>(
                     let name = get_or_create_value(activation, name, object_table, amf_version);
                     let value = get_or_create_value(activation, value, object_table, amf_version);
 
-                    dictionary_body.push((name, value));
+                    dictionary_body.push((name.as_ref().clone(), value.as_ref().clone()));
 
                     last_index = dictionary
                         .get_next_enumerant(last_index, activation)
@@ -266,7 +266,7 @@ fn get_or_create_element<'gc>(
 ) -> Element {
     let value = get_or_create_value(activation, val, object_table, amf_version);
 
-    Element::new(name, value)
+    Element::new(name, value.as_ref().clone())
 }
 
 fn get_or_create_value<'gc>(
