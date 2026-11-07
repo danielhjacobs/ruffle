@@ -1,0 +1,3 @@
+XML value type: object
+Array length: 3
+Object property: shared
