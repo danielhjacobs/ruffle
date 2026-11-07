@@ -1,10 +1,9 @@
-use crate::avm1::amf::{Amf0ReferenceCache, deserialize_value, recursive_serialize};
+use crate::avm1::amf::{deserialize_value, recursive_serialize};
 use crate::avm1::property_decl::{DeclContext, PropertyOrder, StaticDeclarations, SystemClass};
 use crate::avm1::{Activation, Attribute, Error, NativeObject, Object, Value};
 use crate::avm1_stub;
 use crate::display_object::TDisplayObject;
 use crate::string::AvmString;
-use flash_lso::amf0::read::AMF0Decoder;
 use flash_lso::amf0::writer::Amf0Writer;
 use flash_lso::types::Lso;
 use gc_arena::{Collect, Gc};
@@ -82,20 +81,17 @@ fn get_disk_usage<'gc>(
 fn deserialize_lso<'gc>(
     activation: &mut Activation<'_, 'gc>,
     lso: &Lso,
-    decoder: &AMF0Decoder,
 ) -> Result<Object<'gc>, Error<'gc>> {
     let obj = Object::new(
         &activation.context.strings,
         Some(activation.prototypes().object),
     );
 
-    let mut reference_cache = Amf0ReferenceCache::default();
-
     for child in &lso.body {
         obj.define_value(
             activation.gc(),
             AvmString::new_utf8(activation.gc(), &child.name),
-            deserialize_value(activation, child.value(), decoder, &mut reference_cache),
+            deserialize_value(activation, child.value()),
             Attribute::empty(),
         );
     }
@@ -251,7 +247,7 @@ fn get_local<'gc>(
     if let Some(saved) = activation.context.storage.get(&full_name) {
         let mut reader = flash_lso::read::Reader::default();
         if let Ok(lso) = reader.parse(&saved) {
-            data = deserialize_lso(activation, &lso, &reader.amf0_decoder)?.into();
+            data = deserialize_lso(activation, &lso)?.into();
         }
     }
 

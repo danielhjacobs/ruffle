@@ -1,27 +1,8 @@
 use crate::avm1::{Activation, Attribute, NativeObject, Object, Value};
 use crate::string::AvmString;
-use flash_lso::amf0::read::AMF0Decoder;
 use flash_lso::amf0::writer::{Amf0Writer, CacheKey, ObjWriter};
-use flash_lso::types::{ClassDefinition, Element, ObjectId, Reference, Value as AmfValue};
+use flash_lso::types::{ClassDefinition, Element, ObjectId, Value as AmfValue};
 use ruffle_macros::istr;
-use std::collections::BTreeMap;
-use std::rc::Rc;
-
-/// Tracks AMF0 references while deserializing a message.
-#[derive(Default)]
-pub(crate) struct Amf0ReferenceCache<'gc> {
-    values: BTreeMap<Reference, Value<'gc>>,
-}
-
-impl<'gc> Amf0ReferenceCache<'gc> {
-    pub(crate) fn insert(&mut self, reference: Reference, value: Value<'gc>) {
-        self.values.insert(reference, value);
-    }
-
-    fn get(&self, reference: Reference) -> Option<&Value<'gc>> {
-        self.values.get(&reference)
-    }
-}
 
 /// AMF0 serializes an object as a TypedObject if its constructor has a class
 /// name registered through `Object.registerClass`; otherwise it serializes it as
@@ -125,7 +106,7 @@ fn serialize_array<'gc>(activation: &mut Activation<'_, 'gc>, array: Object<'gc>
 
         let prop_value = array.get(key, activation).unwrap_or(Value::Undefined);
         let value = serialize(activation, prop_value);
-        associative.push(Element::new(key.to_string(), Rc::new(value)));
+        associative.push(Element::new(key.to_string(), value));
     }
     if has_custom_properties {
         // Mixed Array: Has true non-numeric keys
@@ -137,7 +118,7 @@ fn serialize_array<'gc>(activation: &mut Activation<'_, 'gc>, array: Object<'gc>
             let elem_name = AvmString::new_utf8(activation.gc(), i.to_string());
             let prop_value = array.get(elem_name, activation).unwrap_or(Value::Undefined);
             let value = serialize(activation, prop_value);
-            dense.push(Rc::new(value));
+            dense.push(value);
         }
         // Output as a StrictArray.
         AmfValue::StrictArray(ObjectId::INVALID, dense)
@@ -240,12 +221,7 @@ pub fn recursive_serialize<'gc>(
 }
 
 /// Deserialize a AmfValue to a Value
-pub fn deserialize_value<'gc>(
-    activation: &mut Activation<'_, 'gc>,
-    val: &AmfValue,
-    lso: &AMF0Decoder,
-    reference_cache: &mut Amf0ReferenceCache<'gc>,
-) -> Value<'gc> {
+pub fn deserialize_value<'gc>(activation: &mut Activation<'_, 'gc>, val: &AmfValue) -> Value<'gc> {
     match val {
         AmfValue::Null => Value::Null,
         AmfValue::Undefined => Value::Undefined,
@@ -260,12 +236,9 @@ pub fn deserialize_value<'gc>(
                 let v: Value<'gc> = obj.into();
 
                 // This should always be valid, but lets be sure
-                if let Some(reference) = lso.as_reference(val) {
-                    reference_cache.insert(reference, v);
-                }
 
                 for entry in associative {
-                    let value = deserialize_value(activation, entry.value(), lso, reference_cache);
+                    let value = deserialize_value(activation, entry.value());
 
                     if let Ok(i) = entry.name().parse::<i32>() {
                         obj.set_element(activation, i, value).unwrap();
@@ -293,12 +266,9 @@ pub fn deserialize_value<'gc>(
                 .expect("AVM1 Array constructor should return an object");
 
             let v: Value<'gc> = obj.into();
-            if let Some(reference) = lso.as_reference(val) {
-                reference_cache.insert(reference, v);
-            }
 
             for (i, item) in values.iter().enumerate() {
-                let value = deserialize_value(activation, item, lso, reference_cache);
+                let value = deserialize_value(activation, item);
                 obj.set_element(activation, i as i32, value).unwrap();
             }
 
@@ -315,12 +285,9 @@ pub fn deserialize_value<'gc>(
             let v: Value<'gc> = obj.into();
 
             // This should always be valid, but lets be sure
-            if let Some(reference) = lso.as_reference(val) {
-                reference_cache.insert(reference, v);
-            }
 
             for entry in elements {
-                let value = deserialize_value(activation, entry.value(), lso, reference_cache);
+                let value = deserialize_value(activation, entry.value());
                 let name = AvmString::new_utf8(activation.gc(), &entry.name);
                 obj.define_value(activation.gc(), name, value, Attribute::empty());
             }
@@ -346,12 +313,7 @@ pub fn deserialize_value<'gc>(
                 Value::Undefined
             }
         }
-        AmfValue::Reference(x) => {
-            // This should always be a valid reference, but a "bad" file could create an invalid one
-            // In that case we will just assume undefined
-            let val = reference_cache.get(*x).unwrap_or(&Value::Undefined);
-            *val
-        }
+        AmfValue::Reference(_) => Value::Undefined,
         _ => Value::Undefined,
     }
 }
