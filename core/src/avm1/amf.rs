@@ -62,8 +62,28 @@ fn object_class_name<'gc>(
     }
 }
 
-/// Serialize AMF data in NetConnection.addHeader, NetConnection.call, and LocalConnection.send.
+/// Serialize AMF data for LocalConnection.send.
 pub fn serialize<'gc>(activation: &mut Activation<'_, 'gc>, value: Value<'gc>) -> AmfValue {
+    serialize_with_array_encoding(activation, value, ArrayEncoding::StrictWhenDense)
+}
+
+/// Serialize AMF data for NetConnection.addHeader and NetConnection.call.
+pub fn serialize_net_connection<'gc>(
+    activation: &mut Activation<'_, 'gc>,
+    value: Value<'gc>,
+) -> AmfValue {
+    serialize_with_array_encoding(
+        activation,
+        value,
+        ArrayEncoding::StrictWhenNoCustomProperties,
+    )
+}
+
+fn serialize_with_array_encoding<'gc>(
+    activation: &mut Activation<'_, 'gc>,
+    value: Value<'gc>,
+    array_encoding: ArrayEncoding,
+) -> AmfValue {
     match value {
         Value::Undefined => AmfValue::Undefined,
         Value::Null => AmfValue::Null,
@@ -74,7 +94,7 @@ pub fn serialize<'gc>(activation: &mut Activation<'_, 'gc>, value: Value<'gc>) -
             if object.as_display_object().is_some() {
                 AmfValue::Undefined
             } else if object.is_native_array() {
-                serialize_array(activation, object)
+                serialize_array(activation, object, array_encoding)
             } else if let Some(xml_node) = object.as_xml_node() {
                 let string = xml_node
                     .into_string(activation)
@@ -91,7 +111,7 @@ pub fn serialize<'gc>(activation: &mut Activation<'_, 'gc>, value: Value<'gc>) -
             } else {
                 let class_def =
                     object_class_name(activation, object).map(ClassDefinition::default_with_name);
-                let elements = serialize_object_properties(activation, object);
+                let elements = serialize_object_properties(activation, object, array_encoding);
                 AmfValue::Object {
                     id: ObjectId::INVALID,
                     data: ObjectValue {
@@ -109,69 +129,142 @@ pub fn serialize<'gc>(activation: &mut Activation<'_, 'gc>, value: Value<'gc>) -
 fn serialize_object_properties<'gc>(
     activation: &mut Activation<'_, 'gc>,
     object: Object<'gc>,
+    array_encoding: ArrayEncoding,
 ) -> Vec<Element> {
     let mut w = Amf0Writer::default();
-    // Reserve the root object's wire-format slot before serializing its properties.
+
+    // The root object is written by the enclosing NetConnection/LocalConnection
+    // value, while this writer serializes only its properties. Reserve its slot
+    // here so references in those properties use the wire-format index.
     let root_key = CacheKey::from_ptr(object.as_ptr());
     let root_reference = w.make_reference();
     w.cache_add(root_key, root_reference);
-    recursive_serialize(activation, object, &mut w, true);
+
+    recursive_serialize(activation, object, &mut w, array_encoding);
     w.commit_lso("root").into_iter().collect()
 }
 
-/// Serialize an array for NetConnection and LocalConnection.
-fn serialize_array<'gc>(activation: &mut Activation<'_, 'gc>, array: Object<'gc>) -> AmfValue {
+/// Parse a canonical AVM1 array index.
+///
+/// Only canonical nonnegative decimal strings representable by AVM1's
+/// signed 32-bit element-index API are treated as array indices.
+fn avm1_array_index(name: &str) -> Option<i32> {
+    let index = name.parse::<i32>().ok()?;
+    (index >= 0 && index.to_string() == name).then_some(index)
+}
+
+/// Parse a numeric array key the way Flash's NetConnection AMF serializer does.
+/// Leading zeroes are accepted, but leading plus signs, whitespace, and negative
+/// values remain associative property names.
+fn net_connection_array_index(name: &str) -> Option<usize> {
+    // Rust's integer parser accepts a leading '+', but Flash keeps that key associative.
+    if name.starts_with('+') {
+        None
+    } else {
+        name.parse::<usize>().ok()
+    }
+}
+
+/// Serialize an array according to the transport-specific AMF0 array rules.
+fn serialize_array<'gc>(
+    activation: &mut Activation<'_, 'gc>,
+    array: Object<'gc>,
+    array_encoding: ArrayEncoding,
+) -> AmfValue {
     let mut length = array.length(activation).unwrap_or(0).max(0) as usize;
     let keys = array.get_keys(activation, false);
-    for key in &keys {
-        if let Ok(index) = key.to_utf8_lossy().parse::<usize>() {
-            length = length.max(index + 1);
-        }
-    }
 
-    let mut has_custom_properties = false;
-    let mut associative = Vec::new();
-    for key in keys.into_iter().rev() {
-        if key.to_utf8_lossy().parse::<usize>().is_err() {
-            has_custom_properties = true;
+    let is_strict_array = match array_encoding {
+        ArrayEncoding::EcmaArray => false,
+        ArrayEncoding::StrictWhenDense => {
+            for key in &keys {
+                if let Some(index) = avm1_array_index(key.to_utf8_lossy().as_ref()) {
+                    length = length.max(index as usize + 1);
+                }
+            }
+
+            // LocalConnection must preserve holes and noncanonical numeric-looking
+            // property names, so only genuinely dense arrays use strict encoding.
+            keys.len() == length
+                && keys.iter().all(|key| {
+                    avm1_array_index(key.to_utf8_lossy().as_ref())
+                        .is_some_and(|index| (index as usize) < length)
+                })
         }
-        let prop_value = array.get(key, activation).unwrap_or(Value::Undefined);
-        associative.push(Element::new(
-            key.to_string(),
-            serialize(activation, prop_value),
-        ));
-    }
-    if has_custom_properties {
-        AmfValue::ECMAArray {
-            id: ObjectId::INVALID,
-            data: ECMAArrayObjectValue {
-                dense: Vec::new(),
-                elements: associative,
-                length: length as u32,
-            },
+        ArrayEncoding::StrictWhenNoCustomProperties => {
+            let mut has_custom_properties = false;
+            for key in &keys {
+                if let Some(index) = net_connection_array_index(key.to_utf8_lossy().as_ref()) {
+                    if let Some(end) = index.checked_add(1) {
+                        length = length.max(end);
+                    }
+                } else {
+                    has_custom_properties = true;
+                }
+            }
+
+            // NetConnection follows Flash's legacy numeric-key test: a sparse
+            // array with only numeric keys is still a strict array, with holes
+            // serialized as explicit undefined values.
+            !has_custom_properties
         }
-    } else {
+    };
+
+    if is_strict_array {
         let mut dense = Vec::with_capacity(length);
         for i in 0..length {
             let elem_name = AvmString::new_utf8(activation.gc(), i.to_string());
             let prop_value = array.get(elem_name, activation).unwrap_or(Value::Undefined);
-            dense.push(serialize(activation, prop_value));
+            dense.push(serialize_with_array_encoding(
+                activation,
+                prop_value,
+                array_encoding,
+            ));
         }
         AmfValue::StrictArray {
             id: ObjectId::INVALID,
             values: dense,
         }
+    } else {
+        // ECMA arrays preserve associative properties and, for LocalConnection,
+        // preserve sparse indices without materializing undefined holes.
+        let mut elements = Vec::with_capacity(keys.len());
+        for key in keys.into_iter().rev() {
+            let prop_value = array.get(key, activation).unwrap_or(Value::Undefined);
+            elements.push(Element::new(
+                key.to_string(),
+                serialize_with_array_encoding(activation, prop_value, array_encoding),
+            ));
+        }
+        AmfValue::ECMAArray {
+            id: ObjectId::INVALID,
+            data: ECMAArrayObjectValue {
+                dense: Vec::new(),
+                elements,
+                length: length as u32,
+            },
+        }
     }
 }
 
+/// How native AVM1 arrays are represented in the enclosing AMF0 format.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ArrayEncoding {
+    /// SharedObject LSO bodies encode arrays as ECMA arrays.
+    EcmaArray,
+    /// LocalConnection uses strict arrays only when every array index exists.
+    StrictWhenDense,
+    /// NetConnection uses strict arrays whenever there are no custom properties.
+    StrictWhenNoCustomProperties,
+}
+
 /// Helper to serialize a specific value into the ObjWriter cache architecture.
-/// LSO values do not treat XML values as referenceable, while AMF remoting does.
 fn serialize_value_to_writer<'gc>(
     activation: &mut Activation<'_, 'gc>,
     name: &str,
     elem: Value<'gc>,
     writer: &mut dyn ObjWriter<'_>,
-    xml_is_referenceable: bool,
+    array_encoding: ArrayEncoding,
 ) {
     match elem {
         Value::Object(o) => {
@@ -180,35 +273,87 @@ fn serialize_value_to_writer<'gc>(
             } else if o.as_display_object().is_some() {
                 writer.undefined(name)
             } else if o.is_native_array() {
-                let (aw, token) = writer.array(CacheKey::from_ptr(o.as_ptr()));
-                if let Some(mut aw) = aw {
-                    recursive_serialize(activation, o, &mut aw, xml_is_referenceable);
-                    let length = o
-                        .length(activation)
-                        .expect("Failed to get length for SharedObject array");
-                    aw.set_length(length as u32);
-                    aw.commit(name);
+                let mut length = o.length(activation).unwrap_or(0).max(0) as usize;
+                let keys = o.get_keys(activation, false);
+                let is_strict_array = match array_encoding {
+                    ArrayEncoding::EcmaArray => false,
+                    ArrayEncoding::StrictWhenDense => {
+                        keys.len() == length
+                            && keys.iter().all(|key| {
+                                avm1_array_index(key.to_utf8_lossy().as_ref())
+                                    .is_some_and(|index| (index as usize) < length)
+                            })
+                    }
+                    ArrayEncoding::StrictWhenNoCustomProperties => {
+                        let mut has_custom_properties = false;
+                        for key in &keys {
+                            if let Some(index) =
+                                net_connection_array_index(key.to_utf8_lossy().as_ref())
+                            {
+                                if let Some(end) = index.checked_add(1) {
+                                    length = length.max(end);
+                                }
+                            } else {
+                                has_custom_properties = true;
+                            }
+                        }
+                        !has_custom_properties
+                    }
+                };
+
+                if is_strict_array {
+                    let (aw, token) = writer.strict_array(CacheKey::from_ptr(o.as_ptr()));
+
+                    if let Some(mut aw) = aw {
+                        for i in 0..length {
+                            let elem_name = AvmString::new_utf8(activation.gc(), i.to_string());
+                            let prop_value =
+                                o.get(elem_name, activation).unwrap_or(Value::Undefined);
+                            serialize_value_to_writer(
+                                activation,
+                                "",
+                                prop_value,
+                                &mut aw,
+                                array_encoding,
+                            );
+                        }
+
+                        aw.commit(name);
+                    } else {
+                        writer.reference(name, token);
+                    }
                 } else {
-                    writer.reference(name, token);
+                    let (aw, token) = writer.array(CacheKey::from_ptr(o.as_ptr()));
+
+                    if let Some(mut aw) = aw {
+                        recursive_serialize(activation, o, &mut aw, array_encoding);
+                        aw.set_length(length as u32);
+                        aw.commit(name);
+                    } else {
+                        writer.reference(name, token);
+                    }
                 }
             } else if let Some(xml_node) = o.as_xml_node() {
+                // TODO: What happens if an exception is thrown here?
                 let string = xml_node
                     .into_string(activation)
                     .expect("Failed to convert xml to string in SharedObject");
-                if xml_is_referenceable {
-                    writer.xml(
-                        CacheKey::from_ptr(o.as_ptr()),
-                        name,
-                        string.to_utf8_lossy().as_ref(),
-                        true,
-                    );
-                } else {
+                if array_encoding == ArrayEncoding::EcmaArray {
+                    // SharedObject LSO bodies do not include XML in their reference table.
                     writer.add_element(
                         name,
                         AmfValue::XML {
                             value: string.to_utf8_lossy().into_owned(),
                             is_string: true,
                         },
+                    );
+                } else {
+                    // AMF remoting does include XML in the reference table.
+                    writer.xml(
+                        CacheKey::from_ptr(o.as_ptr()),
+                        name,
+                        string.to_utf8_lossy().as_ref(),
+                        true,
                     );
                 }
             } else if let NativeObject::Date(date) = o.native() {
@@ -220,10 +365,11 @@ fn serialize_value_to_writer<'gc>(
                 )
             } else {
                 let key = CacheKey::from_ptr(o.as_ptr());
+
                 if let Some(class_name) = object_class_name(activation, o) {
                     let (ow, token) = writer.typed_object(&class_name, key);
                     if let Some(mut ow) = ow {
-                        recursive_serialize(activation, o, &mut ow, xml_is_referenceable);
+                        recursive_serialize(activation, o, &mut ow, array_encoding);
                         ow.commit(name);
                     } else {
                         writer.reference(name, token);
@@ -231,7 +377,7 @@ fn serialize_value_to_writer<'gc>(
                 } else {
                     let (ow, token) = writer.object(key);
                     if let Some(mut ow) = ow {
-                        recursive_serialize(activation, o, &mut ow, xml_is_referenceable);
+                        recursive_serialize(activation, o, &mut ow, array_encoding);
                         ow.commit(name);
                     } else {
                         writer.reference(name, token);
@@ -247,29 +393,33 @@ fn serialize_value_to_writer<'gc>(
     }
 }
 
+/// Serialize an Object and any children to a JSON object
+/// Used to serialize objects for NetConnection and LocalConnection Flash Remoting
+/// As well as for SharedObject LSO
 pub(crate) fn recursive_serialize<'gc>(
     activation: &mut Activation<'_, 'gc>,
     obj: Object<'gc>,
     writer: &mut dyn ObjWriter<'_>,
-    xml_is_referenceable: bool,
+    array_encoding: ArrayEncoding,
 ) {
+    // Reversed to match flash player ordering
+    // Note that because get_keys can recurse, this may result in an OS stack overflow
+    // This is still better than Flash's behavior, which results in a memory leak/crash
     for element_name in obj.get_keys(activation, false).into_iter().rev() {
         let elem = if obj.is_property_virtual(activation, element_name) {
+            // Flash never evaluates getters during AMF serialization;
+            // it serializes them as `undefined` (0x06).
             Value::Undefined
         } else {
+            // Not a getter, safe to retrieve
             match obj.get(element_name, activation) {
                 Ok(val) => val,
                 Err(_) => continue,
             }
         };
+
         let name = element_name.to_utf8_lossy();
-        serialize_value_to_writer(
-            activation,
-            name.as_ref(),
-            elem,
-            writer,
-            xml_is_referenceable,
-        );
+        serialize_value_to_writer(activation, name.as_ref(), elem, writer, array_encoding);
     }
 }
 
@@ -336,7 +486,7 @@ fn deserialize_value_inner<'gc>(
                     xml_is_referenceable,
                 );
 
-                if let Ok(i) = entry.name().parse::<i32>() {
+                if let Some(i) = avm1_array_index(entry.name()) {
                     obj.set_element(activation, i, child).unwrap();
                 } else {
                     obj.define_value(
@@ -531,7 +681,7 @@ pub(crate) fn deserialize_local_connection_value<'gc>(
                     local_connection_reference_cache(root, references_before_property);
                 let child = deserialize_value(activation, entry.value(), &mut reference_cache);
 
-                if let Ok(index) = entry.name().parse::<i32>() {
+                if let Some(index) = avm1_array_index(entry.name()) {
                     obj.set_element(activation, index, child).unwrap();
                 } else {
                     obj.define_value(
