@@ -1,0 +1,16 @@
+num_ticks = 1
+
+[[compilers]]
+type = "Rascal"
+target = "test.swf"
+scripts = ["test.as"]
+swf_version = 8
+
+[shared_objects."localhost//DateMissing"]
+load = "DateMissing"
+
+[shared_objects."localhost//DateNonCallable"]
+load = "DateNonCallable"
+
+[shared_objects."localhost//DateScriptDefined"]
+load = "DateScriptDefined"

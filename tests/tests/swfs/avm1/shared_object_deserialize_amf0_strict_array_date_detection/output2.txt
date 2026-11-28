@@ -1,0 +1,12 @@
+Date getter installed: true
+GLOBAL Date getter: 1
+--- Reload SharedObject ---
+Saved: true
+StrictArray length: 1
+Date getter calls: 1
+Date type: object
+Prototype marker: undefined
+Is ScriptDate: false
+ScriptDate constructor calls: 0
+Constructor own property: false
+getTime type: function
