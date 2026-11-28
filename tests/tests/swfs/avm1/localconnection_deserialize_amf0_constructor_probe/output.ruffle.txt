@@ -1,0 +1,26 @@
+LocalConnection connected=true
+GETTERS INSTALLED Array: global=true, prototype=true
+GETTERS INSTALLED Date: global=true, prototype=true
+GETTERS INSTALLED XML: global=true, prototype=true
+GETTER/SETTER INSTALLED Array.prototype.length: true
+BEFORE LocalConnection send
+AFTER LocalConnection send
+CONSTRUCTOR XML; phase=after LocalConnection send; argc=1
+CONSTRUCTOR XML; arg0=<probe id="xml-probe"><child>xml-value</child></probe>
+CONSTRUCTOR Date; phase=after LocalConnection send; argc=1
+CONSTRUCTOR Date; arg0=1234567890000
+CONSTRUCTOR Array; phase=after LocalConnection send; argc=1
+CONSTRUCTOR Array; arg0=1
+CONSTRUCTOR Array; phase=after LocalConnection send; argc=1
+CONSTRUCTOR Array; arg0=2
+CALLBACK LocalConnection
+========== LocalConnection ==========
+LocalConnection.StrictArray.type=object
+LocalConnection.StrictArray.isNull=false
+LocalConnection.StrictArray.isUndefined=false
+LocalConnection.StrictArray.probeConstructor=undefined
+LocalConnection.StrictArray.probePrototype=Array prototype
+LocalConnection.StrictArray.constructorIsProbe=true
+LocalConnection.StrictArray.instanceofOriginal=true
+LocalConnection.StrictArray.probeArgument=undefined
+ARRAY PROTOTYPE LENGTH GETTER; phase=LocalConnection callback

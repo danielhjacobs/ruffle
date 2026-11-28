@@ -1,0 +1,7 @@
+--- Starting LocalConnection null Array constructor test ---
+Connected: true
+Original Array constructor is callable: true
+--- Received LocalConnection arrays ---
+ECMAArray result type: object
+StrictArray result type: object
+Restored Array constructor: true
