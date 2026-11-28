@@ -5,8 +5,6 @@ GETTERS INSTALLED XML: global=true, prototype=true
 GETTER/SETTER INSTALLED Array.prototype.length: true
 BEFORE LocalConnection send
 AFTER LocalConnection send
-CONSTRUCTOR XML; phase=after LocalConnection send; argc=1
-CONSTRUCTOR XML; arg0=<probe id="xml-probe"><child>xml-value</child></probe>
 CONSTRUCTOR Date; phase=after LocalConnection send; argc=1
 CONSTRUCTOR Date; arg0=1234567890000
 CALLBACK LocalConnection
@@ -53,6 +51,7 @@ LocalConnection.XML.probePrototype=XML prototype
 LocalConnection.XML.constructorIsProbe=true
 LocalConnection.XML.instanceofOriginal=true
 LocalConnection.XML.probeArgument=undefined
-LocalConnection.XML.firstChildType=undefined
+LocalConnection.XML.firstChildType=object
+LocalConnection.XML.root=probe
 LocalConnection.XML.toStringType=function
-LocalConnection.XML.toString=
+LocalConnection.XML.toString=<probe id="xml-probe"><child>xml-value</child></probe>
