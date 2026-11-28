@@ -1,6 +1,5 @@
 num_ticks = 30
 log_fetch = true
-known_failure = true
 
 [[compilers]]
 type = "Rascal"
@@ -8,4 +7,3 @@ target = "test.swf"
 scripts = ["test.as"]
 swf_version = 8
 use_network = true
-
