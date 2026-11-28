@@ -513,6 +513,18 @@ pub(crate) fn recursive_serialize<'gc>(
     }
 }
 
+/// Selects the Flash-specific behavior used when deserializing an AMF0 value.
+#[derive(Clone, Copy)]
+enum DeserializationContext {
+    /// NetConnection remoting: XML values participate in the reference table.
+    /// Script-defined Date constructors run after the responder callback.
+    NetConnection,
+    /// LocalConnection: Date construction is deferred and XML is not referenceable.
+    LocalConnection,
+    /// SharedObject LSO: Date construction is immediate and XML is not referenceable.
+    SharedObject,
+}
+
 /// Deserialize an AmfValue to a Value, using AMF remoting reference-table semantics.
 pub fn deserialize_value<'gc>(
     activation: &mut Activation<'_, 'gc>,
@@ -520,7 +532,13 @@ pub fn deserialize_value<'gc>(
     reference_cache: &mut Amf0ReferenceCache<'gc>,
     deferred_dates: &mut Vec<DeferredAmf0Date<'gc>>,
 ) -> Value<'gc> {
-    deserialize_value_inner(activation, val, reference_cache, true, true, deferred_dates)
+    deserialize_value_inner(
+        activation,
+        val,
+        reference_cache,
+        DeserializationContext::NetConnection,
+        deferred_dates,
+    )
 }
 
 /// Deserialize an LSO value, where XML values do not occupy reference-table slots.
@@ -535,8 +553,7 @@ pub(crate) fn deserialize_lso_value<'gc>(
         activation,
         val,
         reference_cache,
-        false,
-        false,
+        DeserializationContext::SharedObject,
         &mut deferred_dates,
     )
 }
@@ -552,8 +569,7 @@ fn deserialize_local_connection_lso_value<'gc>(
         activation,
         val,
         reference_cache,
-        false,
-        true,
+        DeserializationContext::LocalConnection,
         deferred_dates,
     )
 }
@@ -562,8 +578,7 @@ fn deserialize_value_inner<'gc>(
     activation: &mut Activation<'_, 'gc>,
     val: &AmfValue,
     reference_cache: &mut Amf0ReferenceCache<'gc>,
-    xml_is_referenceable: bool,
-    defer_date_constructors: bool,
+    deserialization_context: DeserializationContext,
     deferred_dates: &mut Vec<DeferredAmf0Date<'gc>>,
 ) -> Value<'gc> {
     match val {
@@ -588,8 +603,7 @@ fn deserialize_value_inner<'gc>(
                     activation,
                     entry.value(),
                     reference_cache,
-                    xml_is_referenceable,
-                    defer_date_constructors,
+                    deserialization_context,
                     deferred_dates,
                 );
 
@@ -628,8 +642,7 @@ fn deserialize_value_inner<'gc>(
                     activation,
                     item,
                     reference_cache,
-                    xml_is_referenceable,
-                    defer_date_constructors,
+                    deserialization_context,
                     deferred_dates,
                 );
                 obj.set_element(activation, i as i32, child).unwrap();
@@ -654,8 +667,7 @@ fn deserialize_value_inner<'gc>(
                     activation,
                     entry.value(),
                     reference_cache,
-                    xml_is_referenceable,
-                    defer_date_constructors,
+                    deserialization_context,
                     deferred_dates,
                 );
                 let name = AvmString::new_utf8(activation.gc(), &entry.name);
@@ -665,10 +677,11 @@ fn deserialize_value_inner<'gc>(
             value
         }
         AmfValue::Date { data, .. } => {
-            let value = if defer_date_constructors {
-                deferred_date_from_amf0(activation, data.time, deferred_dates)
-            } else {
-                date_from_amf0(activation, data.time)
+            let value = match deserialization_context {
+                DeserializationContext::LocalConnection | DeserializationContext::NetConnection => {
+                    deferred_date_from_amf0(activation, data.time, deferred_dates)
+                }
+                DeserializationContext::SharedObject => date_from_amf0(activation, data.time),
             };
 
             reference_cache.insert(value);
@@ -679,7 +692,10 @@ fn deserialize_value_inner<'gc>(
             // without invoking the script-visible XML constructor.
             let value = xml_from_amf0(activation, content);
 
-            if xml_is_referenceable {
+            if matches!(
+                deserialization_context,
+                DeserializationContext::NetConnection
+            ) {
                 reference_cache.insert(value);
             }
             value
