@@ -1,0 +1,4 @@
+Date getter installed: true
+--- Initialize SharedObject ---
+StrictArray length: 1
+Initial Date getter calls: 0

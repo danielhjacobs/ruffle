@@ -1,4 +1,5 @@
 use crate::avm1::amf::{Amf0ReferenceCache, deserialize_value, serialize_net_connection};
+use crate::avm1::globals::date::DeferredAmf0Date;
 use crate::avm1::property_decl::{DeclContext, PropertyOrder, StaticDeclarations, SystemClass};
 use crate::avm1::{
     Activation, ActivationIdentifier, Error, ExecutionReason, NativeObject, Object, Value,
@@ -116,13 +117,27 @@ impl<'gc> NetConnection<'gc> {
             ResponderCallback::Status => istr!("onStatus"),
         };
         let mut reference_cache = Amf0ReferenceCache::default();
-        let value = deserialize_value(&mut activation, message, &mut reference_cache);
-        responder.call_method(
+        let mut deferred_dates = Vec::<DeferredAmf0Date<'gc>>::new();
+        let value = deserialize_value(
+            &mut activation,
+            message,
+            &mut reference_cache,
+            &mut deferred_dates,
+        );
+        let callback_result = responder.call_method(
             method_name,
             &[value],
             &mut activation,
             ExecutionReason::Special,
-        )?;
+        );
+
+        // Flash runs script-defined AMF0 Date constructors after the responder
+        // callback, while exposing the uninitialized objects to that callback.
+        for date in deferred_dates {
+            date.initialize(&mut activation);
+        }
+
+        callback_result?;
         Ok(())
     }
 }
