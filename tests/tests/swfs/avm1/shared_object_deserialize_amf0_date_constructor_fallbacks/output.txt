@@ -1,0 +1,21 @@
+--- Missing Date binding ---
+Missing.saved: true
+Missing.hasDate: true
+Date type: undefined
+Date is undefined: true
+--- Non-callable Date binding ---
+Non-callable.saved: true
+Non-callable.hasDate: true
+Date type: undefined
+Date is undefined: true
+--- Script-defined Date binding ---
+Global Date is ScriptDate: true
+Global Date type: function
+Script-defined.saved: undefined
+Script-defined.hasDate: undefined
+Date type: undefined
+Prototype marker: undefined
+Is ScriptDate: false
+Constructor calls: 0
+Constructor own property: undefined
+getTime type: undefined

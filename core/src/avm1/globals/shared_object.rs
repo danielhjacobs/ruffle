@@ -8,7 +8,7 @@ use crate::display_object::TDisplayObject;
 use crate::shared_object::local_shared_object_key;
 use crate::string::AvmString;
 use flash_lso::amf0::writer::{Amf0Writer, CacheKey, ObjWriter};
-use flash_lso::types::Lso;
+use flash_lso::types::{Lso, Value as AmfValue};
 use gc_arena::{Collect, Gc};
 use ruffle_macros::istr;
 
@@ -75,11 +75,53 @@ fn get_disk_usage<'gc>(
     Ok(Value::Undefined)
 }
 
-/// Deserializes a Lso into an object containing the properties stored
+/// Returns whether an AMF0 value contains a Date, including in nested values.
+fn contains_amf0_date(value: &AmfValue) -> bool {
+    match value {
+        AmfValue::Date { .. } => true,
+        AmfValue::ECMAArray { data, .. } => data
+            .elements
+            .iter()
+            .any(|entry| contains_amf0_date(entry.value())),
+        AmfValue::Object { data, .. } => data
+            .elements
+            .iter()
+            .any(|entry| contains_amf0_date(entry.value())),
+        AmfValue::StrictArray { values, .. } => values.iter().any(contains_amf0_date),
+        _ => false,
+    }
+}
+
+/// Deserializes an LSO into an object containing the properties stored.
+///
+/// Flash does not load the SharedObject data object when it encounters an
+/// AMF0 Date while the global Date binding is script-defined. Missing and
+/// non-callable Date bindings instead deserialize the Date value as undefined.
 fn deserialize_lso<'gc>(
     activation: &mut Activation<'_, 'gc>,
     lso: &Lso,
-) -> Result<Object<'gc>, Error<'gc>> {
+) -> Result<Option<Object<'gc>>, Error<'gc>> {
+    let contains_date = lso
+        .body
+        .iter()
+        .any(|child| contains_amf0_date(child.value()));
+    let script_defined_date = if contains_date {
+        // Flash resolves the global Date binding through ordinary property
+        // access before deserializing an LSO, invoking virtual getters once.
+        let global = activation.global_object();
+        match global.get(istr!("Date"), activation)? {
+            Value::Object(constructor) => constructor
+                .as_function()
+                .is_some_and(|function| !function.has_native_constructor()),
+            _ => false,
+        }
+    } else {
+        false
+    };
+    if script_defined_date {
+        return Ok(None);
+    }
+
     let obj = Object::new(
         &activation.context.strings,
         Some(activation.prototypes().object),
@@ -100,7 +142,7 @@ fn deserialize_lso<'gc>(
         );
     }
 
-    Ok(obj)
+    Ok(Some(obj))
 }
 
 fn new_lso<'gc>(activation: &mut Activation<'_, 'gc>, name: &str, data: Object<'gc>) -> Lso {
@@ -166,16 +208,21 @@ fn get_local<'gc>(
     }
 
     let mut data = Value::Undefined;
+    let mut data_deserialization_failed = false;
 
     // Load the data object from storage if it existed prior
     if let Some(saved) = activation.context.storage.get(&full_name) {
         let mut reader = flash_lso::read::Reader::default();
         if let Ok(lso) = reader.parse(&saved) {
-            data = deserialize_lso(activation, &lso)?.into();
+            if let Some(data_object) = deserialize_lso(activation, &lso)? {
+                data = data_object.into();
+            } else {
+                data_deserialization_failed = true;
+            }
         }
     }
 
-    if data == Value::Undefined {
+    if data == Value::Undefined && !data_deserialization_failed {
         // No data; create a fresh data object.
         data = Object::new(
             &activation.context.strings,
