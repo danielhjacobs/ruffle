@@ -1,5 +1,6 @@
 use crate::avm1::amf::{
-    Amf0ReferenceCache, SerializationContext, deserialize_value, serialize_with_context,
+    Amf0ReferenceCache, DeserializationContext, SerializationContext, deserialize_value,
+    serialize_with_context,
 };
 use crate::avm1::globals::date::DeferredAmf0Date;
 use crate::avm1::property_decl::{DeclContext, PropertyOrder, StaticDeclarations, SystemClass};
@@ -124,6 +125,7 @@ impl<'gc> NetConnection<'gc> {
             &mut activation,
             message,
             &mut reference_cache,
+            DeserializationContext::NetConnection,
             &mut deferred_dates,
         );
         let callback_result = responder.call_method(
