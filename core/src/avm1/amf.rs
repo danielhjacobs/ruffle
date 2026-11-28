@@ -786,11 +786,10 @@ pub(crate) fn deserialize_local_connection_value<'gc>(
             root
         }
         AmfValue::ECMAArray { data, .. } => {
-            let Ok(Some(Value::Object(obj))) =
-                activation.instantiate_class_fast([istr!("Array")], &[Value::from(data.length)])
-            else {
-                return Value::Undefined;
-            };
+            let obj = ArrayBuilder::empty_with_len(
+                activation,
+                i32::try_from(data.length).unwrap_or(i32::MAX),
+            );
             let root: Value<'gc> = obj.into();
             let mut references_before_property = 1;
 
@@ -839,12 +838,10 @@ pub(crate) fn deserialize_local_connection_value<'gc>(
             root
         }
         AmfValue::StrictArray { values, .. } => {
-            let args = &[Value::from_usize_lossy(values.len())];
-            let Ok(Some(Value::Object(obj))) =
-                activation.instantiate_class_fast([istr!("Array")], args)
-            else {
-                return Value::Undefined;
-            };
+            let obj = ArrayBuilder::empty_with_len(
+                activation,
+                i32::try_from(values.len()).unwrap_or(i32::MAX),
+            );
             let root: Value<'gc> = obj.into();
             let mut references_before_property = 1;
 
