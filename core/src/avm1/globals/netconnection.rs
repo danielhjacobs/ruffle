@@ -1,4 +1,7 @@
-use crate::avm1::amf::{Amf0ReferenceCache, deserialize_value, serialize_net_connection};
+use crate::avm1::amf::{
+    Amf0ReferenceCache, DeserializationContext, SerializationContext, deserialize_value,
+    serialize_with_context,
+};
 use crate::avm1::globals::date::DeferredAmf0Date;
 use crate::avm1::property_decl::{DeclContext, PropertyOrder, StaticDeclarations, SystemClass};
 use crate::avm1::{
@@ -122,6 +125,7 @@ impl<'gc> NetConnection<'gc> {
             &mut activation,
             message,
             &mut reference_cache,
+            DeserializationContext::NetConnection,
             &mut deferred_dates,
         );
         let callback_result = responder.call_method(
@@ -248,7 +252,11 @@ fn add_header<'gc>(
         .unwrap_or(&Value::Bool(true))
         .as_bool(activation.swf_version());
 
-    let value = serialize_net_connection(activation, *args.get(2).unwrap_or(&Value::Null));
+    let value = serialize_with_context(
+        activation,
+        *args.get(2).unwrap_or(&Value::Null),
+        SerializationContext::NetConnection,
+    );
 
     if let Some(handle) = net_connection.handle() {
         activation.context.net_connections.set_header(
@@ -281,7 +289,11 @@ fn call<'gc>(
 
     if args.len() > 2 {
         for arg in &args[2..] {
-            arguments.push(serialize_net_connection(activation, *arg));
+            arguments.push(serialize_with_context(
+                activation,
+                *arg,
+                SerializationContext::NetConnection,
+            ));
         }
     }
 
